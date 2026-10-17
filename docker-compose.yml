@@ -1,0 +1,16 @@
+# Values come from the shell environment first, then from a git-ignored .env file next to this one.
+# Secrets use :? so compose refuses to start and names the missing variable (never its value).
+services:
+  carrier-sales:
+    build: .
+    image: carrier-sales:local
+    environment:
+      TMS_HOST: ${TMS_HOST:-tramway.proxy.rlwy.net}
+      TMS_PORT: ${TMS_PORT:-17159}
+      TMS_TOKEN: ${TMS_TOKEN:?TMS_TOKEN is not set}
+      FMCSA_API_KEY: ${FMCSA_API_KEY:?FMCSA_API_KEY is not set}
+      API_KEY: ${API_KEY:?API_KEY is not set}
+      PORT: ${PORT:-8080}
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+    restart: unless-stopped

@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: carrier-sales
+
+server:
+  port: ${PORT:8080}
+
+# Non-secret values have real defaults (env var overrides them).
+# Secrets have empty defaults so a missing variable fails bean validation with a clear message
+# instead of an "unresolvable placeholder" stack trace. Never put a secret value in this file.
+app:
+  tms:
+    host: ${TMS_HOST:tramway.proxy.rlwy.net}
+    port: ${TMS_PORT:17159}
+    token: ${TMS_TOKEN:}
+  fmcsa:
+    api-key: ${FMCSA_API_KEY:}
+  security:
+    api-key: ${API_KEY:}
