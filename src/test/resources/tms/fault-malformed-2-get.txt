@@ -1,0 +1,2 @@
+LOAD_ID:LD00992     |ORIG_CITY:Honolulu                      |ORIG_STATE:HI|ORIG_ZIP:96813|DEST_CITY:Amarillo                      |DEST_STATE:TX|DEST_ZIP:79101|PICKUP_DT:20261017072700|DELIVERY_DT:20261018042700|EQTYPE:REEFER    |RATE:11147   |WEIGHT:7290    |C|XXOMMODITY:Machinery                     |PIECES:23    |MILES:3495  |DIMS:45ft x 8ft x 9ft              |NOTES:                                                                                                                        |STATUS:OPEN    |MAX_BUY:12922   
+END
