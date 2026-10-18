@@ -1,4 +1,4 @@
-package ai.happyrobot.carriersales.tms;
+package ai.happyrobot.carriersales.tms.protocol;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

@@ -1,30 +1,31 @@
-package ai.happyrobot.carriersales.tms;
+package ai.happyrobot.carriersales.tms.protocol;
 
-import static ai.happyrobot.carriersales.tms.TmsCommand.LOAD_GET;
-import static ai.happyrobot.carriersales.tms.TmsCommand.LOAD_QUERY;
+import static ai.happyrobot.carriersales.tms.TmsFixtures.fixture;
+import static ai.happyrobot.carriersales.tms.protocol.TmsCommand.LOAD_GET;
+import static ai.happyrobot.carriersales.tms.protocol.TmsCommand.LOAD_QUERY;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
-import ai.happyrobot.carriersales.tms.TmsResponse.Fault;
-import ai.happyrobot.carriersales.tms.TmsResponse.FaultKind;
-import ai.happyrobot.carriersales.tms.TmsResponse.Success;
-import ai.happyrobot.carriersales.tms.TmsResponse.TmsError;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
+import ai.happyrobot.carriersales.tms.exception.FaultKind;
+import ai.happyrobot.carriersales.tms.exception.TmsErrorException;
+import ai.happyrobot.carriersales.tms.exception.TmsFaultException;
+import ai.happyrobot.carriersales.tms.model.EquipmentType;
+import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/** Fixtures in src/test/resources/tms/ are real TMS responses captured by tools/tms-probes/capture.py. */
 class TmsResponseParserTest {
 
     // --- clean responses ---
 
     @Test
     void parsesSearchResults() {
-        Success success = (Success) TmsResponseParser.parse(LOAD_QUERY, fixture("query-dest-tx.txt"));
+        List<TmsLoad> loads = TmsResponseParser.parse(LOAD_QUERY, fixture("query-dest-tx.txt"));
 
-        assertThat(success.loads()).hasSize(5);
-        TmsLoad first = success.loads().getFirst();
+        assertThat(loads).hasSize(5);
+        TmsLoad first = loads.getFirst();
         assertThat(first.loadId()).isEqualTo("LD00992");
         assertThat(first.originCity()).isEqualTo("Honolulu");
         assertThat(first.destinationState()).isEqualTo("TX");
@@ -36,9 +37,8 @@ class TmsResponseParserTest {
 
     @Test
     void parsesFullRecord() {
-        Success success = (Success) TmsResponseParser.parse(LOAD_GET, fixture("get-LD00992.txt"));
+        TmsLoad load = TmsResponseParser.parse(LOAD_GET, fixture("get-LD00992.txt")).getFirst();
 
-        TmsLoad load = success.loads().getFirst();
         assertThat(load.deliveryAt()).isEqualTo(LocalDateTime.of(2026, 10, 18, 4, 27, 0));
         assertThat(load.weightLbs()).isEqualTo(7290);
         assertThat(load.commodity()).isEqualTo("Machinery");
@@ -50,17 +50,20 @@ class TmsResponseParserTest {
 
     @Test
     void endOnlyMeansNoResults() {
-        Success success = (Success) TmsResponseParser.parse(LOAD_QUERY, fixture("query-no-results.txt"));
-
-        assertThat(success.loads()).isEmpty();
+        assertThat(TmsResponseParser.parse(LOAD_QUERY, fixture("query-no-results.txt"))).isEmpty();
     }
 
     @Test
     void parsesErrors() {
-        assertThat(TmsResponseParser.parse(LOAD_GET, fixture("get-not-found.err.txt")))
-                .isEqualTo(new TmsError("NOT_FOUND", "Load not found"));
-        assertThat(TmsResponseParser.parse(LOAD_QUERY, fixture("query-bad-eqtype.err.txt")))
-                .isEqualTo(new TmsError("MISSING_FIELD", "Invalid EQTYPE"));
+        TmsErrorException notFound = catchThrowableOfType(TmsErrorException.class,
+                () -> TmsResponseParser.parse(LOAD_GET, fixture("get-not-found.err.txt")));
+        assertThat(notFound.code()).isEqualTo("NOT_FOUND");
+        assertThat(notFound.tmsMessage()).isEqualTo("Load not found");
+
+        TmsErrorException badEquipment = catchThrowableOfType(TmsErrorException.class,
+                () -> TmsResponseParser.parse(LOAD_QUERY, fixture("query-bad-eqtype.err.txt")));
+        assertThat(badEquipment.code()).isEqualTo("MISSING_FIELD");
+        assertThat(badEquipment.tmsMessage()).isEqualTo("Invalid EQTYPE");
     }
 
     // --- real faults captured from the live TMS ---
@@ -123,7 +126,7 @@ class TmsResponseParserTest {
     }
 
     @Test
-    void errLineAfterRecordsIsMalformed() {
+    void errLineFollowedByRecordsIsMalformed() {
         String mixed = "ERR|CODE:SERVER_ERROR|MSG:oops\r\n" + fixture("query-dest-tx.txt");
 
         assertFault(LOAD_QUERY, mixed, FaultKind.MALFORMED);
@@ -140,25 +143,18 @@ class TmsResponseParserTest {
 
     @Test
     void maxBuyIsNotInToStringNorInFaultDetails() {
-        Success success = (Success) TmsResponseParser.parse(LOAD_GET, fixture("get-LD00992.txt"));
-        assertThat(success.loads().getFirst().toString()).doesNotContain("12922");
+        TmsLoad load = TmsResponseParser.parse(LOAD_GET, fixture("get-LD00992.txt")).getFirst();
+        assertThat(load.toString()).doesNotContain("12922");
 
         String corrupted = fixture("get-LD00992.txt").replace("MAX_BUY:12922   ", "MAX_BUY:12X22   ");
-        Fault fault = (Fault) TmsResponseParser.parse(LOAD_GET, corrupted);
-        assertThat(fault.detail()).contains("MAX_BUY").doesNotContain("12X22");
+        assertThatThrownBy(() -> TmsResponseParser.parse(LOAD_GET, corrupted))
+                .isInstanceOf(TmsFaultException.class)
+                .hasMessageContaining("MAX_BUY")
+                .hasMessageNotContaining("12X22");
     }
 
     private static void assertFault(TmsCommand command, String raw, FaultKind expected) {
-        assertThat(TmsResponseParser.parse(command, raw))
-                .isInstanceOfSatisfying(Fault.class, f -> assertThat(f.kind()).isEqualTo(expected));
-    }
-
-    private static String fixture(String name) {
-        try (InputStream in = TmsResponseParserTest.class.getResourceAsStream("/tms/" + name)) {
-            assertThat(in).as("fixture " + name).isNotNull();
-            return new String(in.readAllBytes(), StandardCharsets.US_ASCII);
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
+        assertThatThrownBy(() -> TmsResponseParser.parse(command, raw))
+                .isInstanceOfSatisfying(TmsFaultException.class, e -> assertThat(e.kind()).isEqualTo(expected));
     }
 }

@@ -2,6 +2,7 @@ package ai.happyrobot.carriersales.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
@@ -32,6 +33,7 @@ class ConfigPropertiesTest {
             assertThat(tms.host()).isEqualTo("tms.example.com");
             assertThat(tms.port()).isEqualTo(17159);
             assertThat(tms.token()).isEqualTo("super-secret-tms-token");
+            assertThat(tms.attemptTimeout()).isEqualTo(Duration.ofSeconds(4));
             assertThat(context.getBean(FmcsaProperties.class).apiKey()).isEqualTo("super-secret-fmcsa-key");
             assertThat(context.getBean(SecurityProperties.class).apiKey()).isEqualTo("super-secret-api-key");
         });

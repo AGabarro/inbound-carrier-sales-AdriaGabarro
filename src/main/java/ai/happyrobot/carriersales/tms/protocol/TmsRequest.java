@@ -1,4 +1,4 @@
-package ai.happyrobot.carriersales.tms;
+package ai.happyrobot.carriersales.tms.protocol;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;

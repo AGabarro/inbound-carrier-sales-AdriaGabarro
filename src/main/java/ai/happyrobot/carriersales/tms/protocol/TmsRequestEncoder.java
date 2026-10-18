@@ -1,4 +1,4 @@
-package ai.happyrobot.carriersales.tms;
+package ai.happyrobot.carriersales.tms.protocol;
 
 public final class TmsRequestEncoder {
 
