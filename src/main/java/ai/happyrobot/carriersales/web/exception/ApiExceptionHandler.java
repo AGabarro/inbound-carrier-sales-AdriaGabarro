@@ -1,11 +1,13 @@
 package ai.happyrobot.carriersales.web.exception;
 
+import ai.happyrobot.carriersales.fmcsa.exception.FmcsaUnavailableException;
 import ai.happyrobot.carriersales.tms.exception.TmsErrorException;
 import ai.happyrobot.carriersales.tms.exception.TmsFaultException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -18,6 +20,18 @@ public class ApiExceptionHandler {
     @ExceptionHandler(BadRequestException.class)
     ResponseEntity<ErrorResponse> badRequest(BadRequestException e) {
         return respond(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", e.getMessage());
+    }
+
+    // Missing or broken JSON body (e.g. a misconfigured tool), in the same shape as every other error.
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ResponseEntity<ErrorResponse> unreadableBody(HttpMessageNotReadableException e) {
+        return respond(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "The request body is missing or is not valid JSON.");
+    }
+
+    @ExceptionHandler(FmcsaUnavailableException.class)
+    ResponseEntity<ErrorResponse> fmcsaUnavailable(FmcsaUnavailableException e) {
+        return respond(HttpStatus.SERVICE_UNAVAILABLE, "FMCSA_UNAVAILABLE",
+                "I can't check your MC number right now. Please try again in a few minutes.");
     }
 
     // Still failing after the client's retries.

@@ -4,6 +4,11 @@ spring:
   jackson:
     property-naming-strategy: SNAKE_CASE
     default-property-inclusion: non_empty
+  http:
+    client:
+      connect-timeout: 5s
+      # FMCSA usually answers in ~0.5s but sometimes takes 3-6s (measured from Railway, 2026-10-19).
+      read-timeout: 10s
 
 server:
   port: ${PORT:8080}
