@@ -1,5 +1,8 @@
 package ai.happyrobot.carriersales.carriers;
 
+import ai.happyrobot.carriersales.call.CallSession;
+import ai.happyrobot.carriersales.call.CallSessionStore;
+import ai.happyrobot.carriersales.call.CallState;
 import ai.happyrobot.carriersales.carriers.model.VerifyResult;
 import ai.happyrobot.carriersales.fmcsa.FmcsaClient;
 import ai.happyrobot.carriersales.fmcsa.exception.FmcsaUnavailableException;
@@ -13,7 +16,8 @@ import org.springframework.stereotype.Service;
 
 /**
  * Carrier verification as the brief defines it: look the MC number up in FMCSA and check for active
- * operating authority. If the carrier does not pass, the call ends.
+ * operating authority. If the carrier does not pass, the call ends. A pass binds the MC to the call,
+ * which is the first step towards unlocking loads (the OTP is the second).
  */
 @Service
 public class CarrierService {
@@ -23,20 +27,30 @@ public class CarrierService {
     static final String NOT_ELIGIBLE = "NOT_ELIGIBLE";
     static final String NO_ACTIVE_AUTHORITY = "NO_ACTIVE_AUTHORITY";
     static final String FMCSA_UNAVAILABLE = "FMCSA_UNAVAILABLE";
+    static final String MC_MISMATCH = "MC_MISMATCH";
 
     private final FmcsaClient fmcsa;
+    private final CallSessionStore sessions;
 
-    public CarrierService(FmcsaClient fmcsa) {
+    public CarrierService(FmcsaClient fmcsa, CallSessionStore sessions) {
         this.fmcsa = fmcsa;
+        this.sessions = sessions;
     }
 
     // Every outcome is a normal result with an error code and a sentence: HappyRobot only reads 200 responses.
-    public VerifyResult verify(String spokenMcNumber) {
+    public VerifyResult verify(String spokenMcNumber, String callId) {
         String mc;
         try {
             mc = mcNumber(spokenMcNumber);
         } catch (BadRequestException e) {
             return VerifyResult.notEligible(INVALID_REQUEST, "", e.getMessage(), "");
+        }
+
+        // Once a call has verified an MC, it can't switch to another one (e.g. after the OTP went elsewhere).
+        Optional<CallSession> session = Optional.ofNullable(callId).filter(id -> !id.isBlank()).flatMap(sessions::find);
+        if (session.isPresent() && session.get().state() != CallState.NEW && !mc.equals(session.get().mcNumber())) {
+            return VerifyResult.notEligible(MC_MISMATCH, "",
+                    "This call is already verified for a different MC number, so I can't switch carriers now.", mc);
         }
 
         Optional<FmcsaCarrier> found;
@@ -57,13 +71,30 @@ public class CarrierService {
                     "I'm sorry, I can't verify active operating authority for that MC number, so I can't book "
                             + "loads with you today. Thanks for calling HappyRobot Logistics.", mc);
         }
+        String carrierName = titleCase(carrier.legalName());
+        bindToCall(callId, mc, carrierName);
         return new VerifyResult("", "You're verified.", true, "", mc,
-                titleCase(carrier.legalName()),
+                carrierName,
                 titleCase(carrier.dbaName()),
                 homeBase(carrier),
                 carrier.powerUnits(),
                 carrier.drivers(),
                 safetyRating(carrier.safetyRating()));
+    }
+
+    // Marks the call as FMCSA_VERIFIED for this MC. Verifying the same MC again doesn't reset later progress.
+    private void bindToCall(String callId, String mc, String carrierName) {
+        if (callId == null || callId.isBlank()) {
+            return; // nothing to remember; the load gate will still refuse this call
+        }
+        CallSession session = sessions.getOrCreate(callId);
+        synchronized (session) {
+            if (session.state() == CallState.NEW) {
+                session.state(CallState.FMCSA_VERIFIED);
+                session.mcNumber(mc);
+                session.carrierName(carrierName);
+            }
+        }
     }
 
     // The brief's check, in FMCSA terms: allowed to operate, USDOT status active, and for-hire authority
@@ -74,13 +105,9 @@ public class CarrierService {
                 && ("A".equals(carrier.commonAuthorityStatus()) || "A".equals(carrier.contractAuthorityStatus()));
     }
 
-    /** "MC 133655", "mc-133655", "133655" -> "133655". */
     private static String mcNumber(String spoken) {
-        String digits = spoken == null ? "" : spoken.replaceAll("\\D", "").replaceFirst("^0+", "");
-        if (!digits.matches("\\d{1,8}")) {
-            throw new BadRequestException("I didn't catch your MC number. Can you read it to me again?");
-        }
-        return digits;
+        return McNumber.clean(spoken).orElseThrow(
+                () -> new BadRequestException("I didn't catch your MC number. Can you read it to me again?"));
     }
 
     private static String homeBase(FmcsaCarrier carrier) {

@@ -6,6 +6,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -20,13 +21,14 @@ public class CarrierController {
     }
 
     @PostMapping("/verify")
-    public VerifyResult verify(@RequestBody(required = false) VerifyRequest request) {
-        return carrierService.verify(request == null ? null : request.mcNumber());
+    public VerifyResult verify(@RequestBody(required = false) VerifyRequest request,
+                               @RequestHeader(name = "X-Call-ID", required = false) String callId) {
+        return carrierService.verify(request == null ? null : request.mcNumber(), callId);
     }
 
     // Broken JSON still gets the normal 200 shape, so the agent can ask for the MC number again.
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public VerifyResult unreadableBody() {
-        return carrierService.verify(null);
+        return carrierService.verify(null, null);
     }
 }

@@ -2,11 +2,14 @@ package ai.happyrobot.carriersales.loads;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import ai.happyrobot.carriersales.call.CallSessionStore;
+import ai.happyrobot.carriersales.call.CallState;
 import ai.happyrobot.carriersales.tms.TmsClient;
 import ai.happyrobot.carriersales.tms.exception.FaultKind;
 import ai.happyrobot.carriersales.tms.exception.TmsErrorException;
@@ -19,6 +22,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -52,8 +57,55 @@ class LoadApiTest {
     @Autowired
     private ObjectMapper json;
 
+    @Autowired
+    private CallSessionStore sessions;
+
     @MockitoBean
     private TmsClient tms;
+
+    private String verifiedCallId;
+
+    // Load tools only work after FMCSA + OTP; these tests are about the load endpoints themselves.
+    @BeforeEach
+    void verifiedCall() {
+        verifiedCallId = "run-" + UUID.randomUUID();
+        sessions.getOrCreate(verifiedCallId).state(CallState.OTP_VERIFIED);
+    }
+
+    // --- the compliance gate ---
+
+    @Test
+    void searchIsRefusedBeforeOtpWithTheSameFields() throws Exception {
+        String notYet = "run-" + UUID.randomUUID();
+        sessions.getOrCreate(notYet).state(CallState.FMCSA_VERIFIED);
+
+        for (String callId : new String[] {notYet, "never-seen", ""}) {
+            JsonNode body = callAs(callId, get("/api/loads/search").param("destination_state", "TX"));
+
+            assertFields(body, SEARCH_FIELDS);
+            assertThat(body.get("error").asText()).isEqualTo("OTP_NOT_VERIFIED");
+            assertThat(body.get("message").asText())
+                    .isEqualTo("I need to verify your identity before I can share loads.");
+        }
+        verifyNoInteractions(tms);
+    }
+
+    @Test
+    void detailsAreRefusedBeforeOtpWithTheSameFields() throws Exception {
+        JsonNode body = callAs("never-seen", get("/api/loads/LD00979"));
+
+        assertFields(body, DETAILS_FIELDS);
+        assertThat(body.get("error").asText()).isEqualTo("OTP_NOT_VERIFIED");
+        verifyNoInteractions(tms);
+    }
+
+    @Test
+    void lockedCallStaysRefused() throws Exception {
+        String locked = "run-" + UUID.randomUUID();
+        sessions.getOrCreate(locked).state(CallState.OTP_LOCKED);
+
+        assertThat(callAs(locked, get("/api/loads/LD00979")).get("error").asText()).isEqualTo("OTP_NOT_VERIFIED");
+    }
 
     // --- HappyRobot's test calls: blank inputs ---
 
@@ -166,7 +218,11 @@ class LoadApiTest {
     }
 
     private JsonNode call(MockHttpServletRequestBuilder request) throws Exception {
-        String body = mockMvc.perform(request.header("X-API-Key", API_KEY))
+        return callAs(verifiedCallId, request);
+    }
+
+    private JsonNode callAs(String callId, MockHttpServletRequestBuilder request) throws Exception {
+        String body = mockMvc.perform(request.header("X-API-Key", API_KEY).header("X-Call-ID", callId))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return json.readTree(body);

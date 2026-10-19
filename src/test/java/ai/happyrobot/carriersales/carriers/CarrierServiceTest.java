@@ -2,10 +2,14 @@ package ai.happyrobot.carriersales.carriers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import ai.happyrobot.carriersales.call.CallSession;
+import ai.happyrobot.carriersales.call.CallSessionStore;
+import ai.happyrobot.carriersales.call.CallState;
 import ai.happyrobot.carriersales.carriers.model.VerifyResult;
 import ai.happyrobot.carriersales.fmcsa.FmcsaClient;
 import ai.happyrobot.carriersales.fmcsa.exception.FmcsaUnavailableException;
@@ -24,13 +28,14 @@ class CarrierServiceTest {
             "Y", "A", "N", "A", null, "BENTON HARBOR", "MI", 2, 2);
 
     private final FmcsaClient fmcsa = mock(FmcsaClient.class);
-    private final CarrierService service = new CarrierService(fmcsa);
+    private final CallSessionStore sessions = new CallSessionStore();
+    private final CarrierService service = new CarrierService(fmcsa, sessions);
 
     @Test
     void activeCarrierIsEligibleWithAFriendlyProfile() {
         when(fmcsa.findByMcNumber("133655")).thenReturn(Optional.of(SCHNEIDER));
 
-        VerifyResult result = service.verify("MC 133655");
+        VerifyResult result = service.verify("MC 133655", null);
 
         assertThat(result.error()).isEmpty();
         assertThat(result.eligible()).isTrue();
@@ -43,11 +48,69 @@ class CarrierServiceTest {
         assertThat(result.safetyRating()).isEqualTo("Satisfactory");
     }
 
+    // --- binding the verified MC to the call ---
+
+    @Test
+    void eligibleCarrierIsBoundToTheCall() {
+        when(fmcsa.findByMcNumber("133655")).thenReturn(Optional.of(SCHNEIDER));
+
+        service.verify("MC 133655", "run-1");
+
+        CallSession session = sessions.find("run-1").orElseThrow();
+        assertThat(session.state()).isEqualTo(CallState.FMCSA_VERIFIED);
+        assertThat(session.mcNumber()).isEqualTo("133655");
+        assertThat(session.carrierName()).isEqualTo("Schneider National Carriers Inc");
+    }
+
+    @Test
+    void notEligibleCarrierLeavesTheCallUnverified() {
+        when(fmcsa.findByMcNumber("999999")).thenReturn(Optional.empty());
+
+        service.verify("999999", "run-1");
+
+        assertThat(sessions.find("run-1")).isEmpty();
+    }
+
+    @Test
+    void aVerifiedCallCannotSwitchToAnotherMc() {
+        when(fmcsa.findByMcNumber("133655")).thenReturn(Optional.of(SCHNEIDER));
+        service.verify("133655", "run-1");
+
+        VerifyResult result = service.verify("650000", "run-1");
+
+        assertThat(result.error()).isEqualTo("MC_MISMATCH");
+        assertThat(result.eligible()).isFalse();
+        verify(fmcsa, never()).findByMcNumber("650000");
+        assertThat(sessions.find("run-1").orElseThrow().mcNumber()).isEqualTo("133655");
+    }
+
+    @Test
+    void verifyingTheSameMcAgainKeepsProgress() {
+        when(fmcsa.findByMcNumber("133655")).thenReturn(Optional.of(SCHNEIDER));
+        service.verify("133655", "run-1");
+        sessions.find("run-1").orElseThrow().state(CallState.OTP_VERIFIED);
+
+        VerifyResult again = service.verify("MC 133655", "run-1");
+
+        assertThat(again.eligible()).isTrue();
+        assertThat(sessions.find("run-1").orElseThrow().state()).isEqualTo(CallState.OTP_VERIFIED);
+    }
+
+    @Test
+    void withoutCallIdNothingIsRemembered() {
+        when(fmcsa.findByMcNumber("133655")).thenReturn(Optional.of(SCHNEIDER));
+
+        assertThat(service.verify("133655", null).eligible()).isTrue();
+        assertThat(service.verify("133655", " ").eligible()).isTrue();
+    }
+
+    // --- the authority rule ---
+
     @Test
     void contractAuthorityAloneIsEnough() {
         when(fmcsa.findByMcNumber("650000")).thenReturn(Optional.of(SMALL_CONTRACT_ONLY));
 
-        VerifyResult result = service.verify("650000");
+        VerifyResult result = service.verify("650000", null);
 
         assertThat(result.eligible()).isTrue();
         assertThat(result.carrierName()).isEqualTo("Mike & Son LLC");
@@ -57,7 +120,7 @@ class CarrierServiceTest {
     void unknownMcAsksToRepeat() {
         when(fmcsa.findByMcNumber("999999")).thenReturn(Optional.empty());
 
-        VerifyResult result = service.verify("999999");
+        VerifyResult result = service.verify("999999", null);
 
         assertThat(result.error()).isEqualTo("NOT_FOUND");
         assertThat(result.eligible()).isFalse();
@@ -72,7 +135,7 @@ class CarrierServiceTest {
         when(fmcsa.findByMcNumber("100000")).thenReturn(Optional.of(new FmcsaCarrier("C & C PRESTIGE LOGISTICS LLC",
                 null, "Y", "I", "N", "N", null, "X", "TX", 1, 1)));
 
-        VerifyResult result = service.verify("100000");
+        VerifyResult result = service.verify("100000", null);
 
         assertThat(result.error()).isEqualTo("NOT_ELIGIBLE");
         assertThat(result.eligible()).isFalse();
@@ -102,7 +165,7 @@ class CarrierServiceTest {
     void cleansSpokenMcNumbers(String spoken) {
         when(fmcsa.findByMcNumber("133655")).thenReturn(Optional.of(SCHNEIDER));
 
-        VerifyResult result = service.verify(spoken);
+        VerifyResult result = service.verify(spoken, null);
 
         verify(fmcsa).findByMcNumber("133655");
         assertThat(result.eligible()).isTrue();
@@ -112,7 +175,7 @@ class CarrierServiceTest {
     @Test
     void mcWithoutDigitsIsRejectedBeforeCallingFmcsa() {
         for (String spoken : new String[] {"I don't remember", "", null}) {
-            VerifyResult result = service.verify(spoken);
+            VerifyResult result = service.verify(spoken, null);
 
             assertThat(result.error()).isEqualTo("INVALID_REQUEST");
             assertThat(result.eligible()).isFalse();
@@ -124,7 +187,7 @@ class CarrierServiceTest {
     void fmcsaDownIsAnFmcsaUnavailableAnswer() {
         when(fmcsa.findByMcNumber("133655")).thenThrow(new FmcsaUnavailableException("timeout"));
 
-        VerifyResult result = service.verify("133655");
+        VerifyResult result = service.verify("133655", null);
 
         assertThat(result.error()).isEqualTo("FMCSA_UNAVAILABLE");
         assertThat(result.message()).contains("try again in a few minutes");

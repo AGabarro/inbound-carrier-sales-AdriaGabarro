@@ -1,7 +1,7 @@
 package ai.happyrobot.carriersales.carriers.model;
 
 // Always HTTP 200 with every field present (HappyRobot learns the fields from one test call).
-// error: "" when eligible, else INVALID_REQUEST | NOT_FOUND | NOT_ELIGIBLE | FMCSA_UNAVAILABLE.
+// error: "" when eligible, else INVALID_REQUEST | NOT_FOUND | NOT_ELIGIBLE | FMCSA_UNAVAILABLE | MC_MISMATCH.
 // reason: the FMCSA detail when not eligible (NOT_FOUND -> ask again, NO_ACTIVE_AUTHORITY -> end the call).
 // Profile fields are only filled when eligible, for a short personal remark.
 public record VerifyResult(

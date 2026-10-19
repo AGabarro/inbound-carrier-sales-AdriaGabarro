@@ -24,3 +24,10 @@ app:
     api-key: ${FMCSA_API_KEY:}
   security:
     api-key: ${API_KEY:}
+  otp-sender:
+    # HappyRobot "OTP Sender" workflow webhook. Empty = codes are not delivered (local runs).
+    webhook-url: ${OTP_SENDER_WEBHOOK_URL:}
+    api-key: ${OTP_SENDER_API_KEY:}
+  carriers:
+    # Contact on file per MC, for one-time codes: "133655:ops@carrier.com,650000:dispatch@other.com"
+    contacts: ${CARRIER_CONTACTS:}
