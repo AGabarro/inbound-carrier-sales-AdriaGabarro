@@ -1,6 +1,9 @@
 spring:
   application:
     name: carrier-sales
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: non_empty
 
 server:
   port: ${PORT:8080}
