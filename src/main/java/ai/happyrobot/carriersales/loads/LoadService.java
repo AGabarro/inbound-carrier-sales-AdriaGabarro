@@ -12,7 +12,7 @@ import ai.happyrobot.carriersales.web.exception.BadRequestException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,19 +35,21 @@ public class LoadService {
 
     private static final Logger log = LoggerFactory.getLogger(LoadService.class);
 
-    // TMS dates carry no timezone; we read them as the brokerage's local time (Chicago).
-    static final ZoneId BROKERAGE_TIME = ZoneId.of("America/Chicago");
     private static final int MAX_RESULTS = 3;
+    // Search checks each candidate's full record (~40ms each from Railway); this bounds the worst case.
+    private static final int MAX_DETAIL_LOOKUPS = 5;
     // A truck averages well under this over a whole trip; above it the load data can't be real.
     private static final double MAX_PLAUSIBLE_MPH = 60;
     private static final Pattern LOAD_ID = Pattern.compile("[A-Z0-9]{1,12}");
 
     static final String INVALID_REQUEST = "INVALID_REQUEST";
     static final String NOT_FOUND = "NOT_FOUND";
+    static final String NOT_AVAILABLE = "NOT_AVAILABLE";
     static final String TMS_UNAVAILABLE = "TMS_UNAVAILABLE";
     static final String TMS_ERROR = "TMS_ERROR";
 
-    private static final String NOT_AVAILABLE = "That load isn't available.";
+    private static final String UNKNOWN_LOAD = "I couldn't find a load with that number.";
+    private static final String NO_LONGER_AVAILABLE = "That load is no longer available.";
     private static final String SYSTEM_SLOW = "Our load system is slow right now, give me a moment and I'll try again.";
     private static final String SYSTEM_ERROR = "Our load system couldn't handle that request right now.";
 
@@ -56,7 +58,7 @@ public class LoadService {
 
     @Autowired
     public LoadService(TmsClient tms) {
-        this(tms, Clock.system(BROKERAGE_TIME));
+        this(tms, Clock.system(LoadFormatter.BROKERAGE_TIME));
     }
 
     // Tests pass a fixed clock so "pickup already passed" is deterministic.
@@ -71,12 +73,12 @@ public class LoadService {
             Map<String, String> filters = filters(originState, originCity, destinationState, destinationCity,
                     equipment, pickupDate);
             LocalDateTime now = LocalDateTime.now(clock);
-            List<LoadSummary> loads = tms.send(TmsRequest.loadQuery(filters)).stream()
+            List<TmsLoad> candidates = tms.send(TmsRequest.loadQuery(filters)).stream()
                     .filter(load -> isOffered(load, now))
                     .sorted(Comparator.comparing(TmsLoad::pickupAt))
-                    .limit(MAX_RESULTS)
-                    .map(LoadService::toSummary)
+                    .limit(MAX_DETAIL_LOOKUPS)
                     .toList();
+            List<LoadSummary> loads = bookable(candidates, now);
 
             if (loads.isEmpty()) {
                 return new SearchResult("", "No loads found for that lane.", false, List.of());
@@ -101,7 +103,8 @@ public class LoadService {
         if (loadId == null || loadId.isBlank()) {
             return LoadDetails.unavailable(INVALID_REQUEST, "Which load number are you calling about?");
         }
-        String id = loadId.trim().toUpperCase(Locale.ROOT);
+        // Spoken IDs arrive as "ld 00994", "LD-00994"...: keep letters and digits only.
+        String id = loadId.toUpperCase(Locale.ROOT).replaceAll("[\\s\\-_.#]", "");
         if (!LOAD_ID.matcher(id).matches()) {
             return LoadDetails.unavailable(INVALID_REQUEST, "I didn't catch the load number. Can you read it again?");
         }
@@ -109,18 +112,19 @@ public class LoadService {
         try {
             List<TmsLoad> found = tms.send(TmsRequest.loadGet(id));
             if (found.isEmpty()) {
-                return LoadDetails.unavailable(NOT_FOUND, NOT_AVAILABLE);
+                return LoadDetails.unavailable(NOT_FOUND, UNKNOWN_LOAD);
             }
             TmsLoad load = found.getFirst();
-            if (!isOffered(load, LocalDateTime.now(clock)) || isImplausible(load)) {
-                return LoadDetails.unavailable(NOT_FOUND, NOT_AVAILABLE);
+            // Exists but can't be offered: covered, pickup passed, or implausible data.
+            if (!isBookable(load, LocalDateTime.now(clock))) {
+                return LoadDetails.unavailable(NOT_AVAILABLE, NO_LONGER_AVAILABLE);
             }
             return toDetails(load);
         } catch (TmsFaultException e) {
             return LoadDetails.unavailable(TMS_UNAVAILABLE, SYSTEM_SLOW);
         } catch (TmsErrorException e) {
             if (e.code().equals("NOT_FOUND")) {
-                return LoadDetails.unavailable(NOT_FOUND, NOT_AVAILABLE);
+                return LoadDetails.unavailable(NOT_FOUND, UNKNOWN_LOAD);
             }
             log.warn("Unexpected TMS error {}: {}", e.code(), e.tmsMessage());
             return LoadDetails.unavailable(TMS_ERROR, SYSTEM_ERROR);
@@ -141,6 +145,34 @@ public class LoadService {
             throw new BadRequestException("Where would you like to pick up or deliver, and what equipment do you run?");
         }
         return filters;
+    }
+
+    /**
+     * Search summaries have no delivery time, so a load can only be judged plausible from its full record.
+     * Fetching it here means search never offers a load that get_load_details would then refuse.
+     * The summary is built from the full record, so both endpoints always show the same values.
+     */
+    private List<LoadSummary> bookable(List<TmsLoad> candidates, LocalDateTime now) {
+        List<LoadSummary> bookable = new ArrayList<>();
+        for (TmsLoad candidate : candidates) {
+            if (bookable.size() == MAX_RESULTS) {
+                break;
+            }
+            try {
+                List<TmsLoad> full = tms.send(TmsRequest.loadGet(candidate.loadId()));
+                if (!full.isEmpty() && isBookable(full.getFirst(), now)) {
+                    bookable.add(toSummary(full.getFirst()));
+                }
+            } catch (TmsFaultException | TmsErrorException e) {
+                // Can't confirm this one right now: skip it rather than fail the whole search.
+                log.info("Load {} skipped in search: {}", candidate.loadId(), e.getMessage());
+            }
+        }
+        return bookable;
+    }
+
+    private static boolean isBookable(TmsLoad load, LocalDateTime now) {
+        return isOffered(load, now) && !isImplausible(load);
     }
 
     private static boolean isOffered(TmsLoad load, LocalDateTime now) {
@@ -167,7 +199,8 @@ public class LoadService {
                 load.loadId(),
                 load.originCity() + ", " + load.originState(),
                 load.destinationCity() + ", " + load.destinationState(),
-                LoadFormatter.spoken(load.pickupAt()),
+                LoadFormatter.iso(load.pickupAt()),
+                LoadFormatter.display(load.pickupAt()),
                 LoadFormatter.equipmentLabel(load.equipmentType()),
                 load.rate(),
                 load.miles());
@@ -181,8 +214,10 @@ public class LoadService {
                 load.loadId(),
                 load.originCity() + ", " + load.originState(),
                 load.destinationCity() + ", " + load.destinationState(),
-                LoadFormatter.spoken(load.pickupAt()),
-                LoadFormatter.spoken(load.deliveryAt()),
+                LoadFormatter.iso(load.pickupAt()),
+                LoadFormatter.display(load.pickupAt()),
+                LoadFormatter.iso(load.deliveryAt()),
+                LoadFormatter.display(load.deliveryAt()),
                 LoadFormatter.equipmentLabel(load.equipmentType()),
                 load.rate(),
                 load.miles(),

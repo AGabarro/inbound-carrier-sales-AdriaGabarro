@@ -21,6 +21,9 @@ public class FmcsaClient {
 
     private static final Logger log = LoggerFactory.getLogger(FmcsaClient.class);
     private static final String BASE_URL = "https://mobile.fmcsa.dot.gov/qc/services";
+    // FMCSA either answers in ~0.5s or hangs for 10s+ (measured from Railway). A short timeout plus one
+    // retry turns most hangs into a ~4.5s answer instead of a failure.
+    private static final int MAX_ATTEMPTS = 2;
 
     private final RestClient restClient;
     private final FmcsaProperties properties;
@@ -32,26 +35,33 @@ public class FmcsaClient {
     }
 
     public Optional<FmcsaCarrier> findByMcNumber(String mcNumber) {
-        JsonNode body;
-        try {
-            body = restClient.get()
-                    .uri("/carriers/docket-number/{mc}?webKey={key}", mcNumber, properties.apiKey())
-                    .retrieve()
-                    .body(JsonNode.class);
-        } catch (RestClientResponseException e) {
-            // Only the status: the exception message contains the URL, and the URL contains the key.
-            log.warn("FMCSA lookup failed with HTTP {}", e.getStatusCode().value());
-            throw new FmcsaUnavailableException("FMCSA answered HTTP " + e.getStatusCode().value());
-        } catch (RestClientException e) {
-            log.warn("FMCSA lookup failed: {}", e.getClass().getSimpleName());
-            throw new FmcsaUnavailableException("FMCSA unreachable: " + e.getClass().getSimpleName());
-        }
-
+        JsonNode body = fetch(mcNumber);
         if (body == null || !body.path("content").isArray()) {
             throw new FmcsaUnavailableException("FMCSA reply has no content list");
         }
         JsonNode carrier = body.path("content").path(0).path("carrier");
         return carrier.isMissingNode() ? Optional.empty() : Optional.of(toCarrier(carrier));
+    }
+
+    // Retries only timeouts and connection errors; an HTTP error status (e.g. a 403 block) won't fix itself.
+    private JsonNode fetch(String mcNumber) {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return restClient.get()
+                        .uri("/carriers/docket-number/{mc}?webKey={key}", mcNumber, properties.apiKey())
+                        .retrieve()
+                        .body(JsonNode.class);
+            } catch (RestClientResponseException e) {
+                // Only the status: the exception message contains the URL, and the URL contains the key.
+                log.warn("FMCSA lookup failed with HTTP {}", e.getStatusCode().value());
+                throw new FmcsaUnavailableException("FMCSA answered HTTP " + e.getStatusCode().value());
+            } catch (RestClientException e) {
+                log.warn("FMCSA lookup attempt {}/{} failed: {}", attempt, MAX_ATTEMPTS, e.getClass().getSimpleName());
+                if (attempt == MAX_ATTEMPTS) {
+                    throw new FmcsaUnavailableException("FMCSA unreachable: " + e.getClass().getSimpleName());
+                }
+            }
+        }
     }
 
     // FMCSA uses camelCase names; reading the JSON tree avoids our app-wide snake_case setting.

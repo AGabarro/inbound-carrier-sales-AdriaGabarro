@@ -58,7 +58,14 @@ class LoadFormatterTest {
 
     @Test
     void formatsDateTimeForSpeech() {
-        assertThat(LoadFormatter.spoken(LocalDateTime.of(2026, 10, 20, 7, 30))).isEqualTo("Oct 20, 7:30 AM");
-        assertThat(LoadFormatter.spoken(LocalDateTime.of(2026, 10, 20, 15, 5))).isEqualTo("Oct 20, 3:05 PM");
+        assertThat(LoadFormatter.display(LocalDateTime.of(2026, 10, 20, 7, 30))).isEqualTo("Tue Oct 20, 7:30 AM CT");
+        assertThat(LoadFormatter.display(LocalDateTime.of(2026, 10, 20, 15, 5))).isEqualTo("Tue Oct 20, 3:05 PM CT");
+    }
+
+    @Test
+    void formatsDateTimeAsIsoWithChicagoOffset() {
+        // Daylight time in October (-05:00), standard time in December (-06:00).
+        assertThat(LoadFormatter.iso(LocalDateTime.of(2026, 10, 22, 6, 44))).isEqualTo("2026-10-22T06:44:00-05:00");
+        assertThat(LoadFormatter.iso(LocalDateTime.of(2026, 12, 1, 9, 0))).isEqualTo("2026-12-01T09:00:00-06:00");
     }
 }

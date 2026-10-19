@@ -77,15 +77,27 @@ class FmcsaClientTest {
                 .isInstanceOf(FmcsaUnavailableException.class)
                 .hasMessageContaining("403")
                 .hasMessageNotContaining(KEY);
+        fmcsa.verify(); // exactly one request: an HTTP error is not retried
     }
 
     @Test
-    void timeoutIsUnavailable() {
+    void oneHangIsRetriedOnce() {
+        expectLookup("133655").andRespond(withException(new SocketTimeoutException("read timed out")));
+        expectLookup("133655").andRespond(withSuccess(fixture("docket-133655.json"), MediaType.APPLICATION_JSON));
+
+        assertThat(client.findByMcNumber("133655")).isPresent();
+        fmcsa.verify();
+    }
+
+    @Test
+    void twoHangsAreUnavailable() {
+        expectLookup("133655").andRespond(withException(new SocketTimeoutException("read timed out")));
         expectLookup("133655").andRespond(withException(new SocketTimeoutException("read timed out")));
 
         assertThatThrownBy(() -> client.findByMcNumber("133655"))
                 .isInstanceOf(FmcsaUnavailableException.class)
                 .hasMessageNotContaining(KEY);
+        fmcsa.verify();
     }
 
     @Test

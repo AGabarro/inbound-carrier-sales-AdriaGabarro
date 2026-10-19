@@ -6,8 +6,8 @@ spring:
   http:
     client:
       connect-timeout: 5s
-      # FMCSA usually answers in ~0.5s but sometimes takes 3-6s (measured from Railway, 2026-10-19).
-      read-timeout: 10s
+      # FMCSA answers in ~0.5s or hangs for 10s+ (measured from Railway, 2026-10-19); FmcsaClient retries once.
+      read-timeout: 4s
 
 server:
   port: ${PORT:8080}

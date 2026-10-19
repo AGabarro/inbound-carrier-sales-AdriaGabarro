@@ -4,6 +4,7 @@ import ai.happyrobot.carriersales.tms.model.EquipmentType;
 import ai.happyrobot.carriersales.web.exception.BadRequestException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Locale;
@@ -11,15 +12,19 @@ import java.util.regex.Pattern;
 
 /**
  * Translates between what the voice agent sends/says and what the TMS expects/returns:
- * "dry van" -> DRY_VAN -> "Dry Van", "2026-10-20" -> 20261020, 2026-10-20T07:30 -> "Oct 20, 7:30 AM".
+ * "dry van" -> DRY_VAN -> "Dry Van", "2026-10-20" -> 20261020,
+ * 2026-10-20T07:30 -> "2026-10-20T07:30:00-05:00" (iso) and "Tue Oct 20, 7:30 AM CT" (display).
  */
 public final class LoadFormatter {
+
+    // TMS dates carry no timezone; we read them as the brokerage's local time (Chicago).
+    public static final ZoneId BROKERAGE_TIME = ZoneId.of("America/Chicago");
 
     private static final Pattern STATE = Pattern.compile("[A-Z]{2}");
     // Letters, spaces and the punctuation real US city names use ("St. Louis", "Coeur d'Alene", "Winston-Salem").
     private static final Pattern CITY = Pattern.compile("[A-Za-z .'-]{2,30}");
     private static final DateTimeFormatter TMS_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
-    private static final DateTimeFormatter SPOKEN = DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.US);
+    private static final DateTimeFormatter DISPLAY = DateTimeFormatter.ofPattern("EEE MMM d, h:mm a 'CT'", Locale.US);
 
     private LoadFormatter() {
     }
@@ -70,8 +75,13 @@ public final class LoadFormatter {
         }
     }
 
-    /** "Oct 20, 7:30 AM": short enough to read out on a call. */
-    public static String spoken(LocalDateTime dateTime) {
-        return dateTime.format(SPOKEN);
+    /** "2026-10-20T07:30:00-05:00": unambiguous, so the agent can reason about "tomorrow" or "this Friday". */
+    public static String iso(LocalDateTime dateTime) {
+        return dateTime.atZone(BROKERAGE_TIME).toOffsetDateTime().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+    }
+
+    /** "Tue Oct 20, 7:30 AM CT": short enough to read out on a call. */
+    public static String display(LocalDateTime dateTime) {
+        return dateTime.format(DISPLAY);
     }
 }

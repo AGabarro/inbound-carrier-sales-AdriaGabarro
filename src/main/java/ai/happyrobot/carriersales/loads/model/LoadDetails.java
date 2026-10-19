@@ -10,7 +10,9 @@ public record LoadDetails(
         String origin,
         String destination,
         String pickupDatetime,
+        String pickupDisplay,
         String deliveryDatetime,
+        String deliveryDisplay,
         String equipmentType,
         int loadboardRate,
         int miles,
@@ -21,6 +23,6 @@ public record LoadDetails(
         String notes) {
 
     public static LoadDetails unavailable(String error, String message) {
-        return new LoadDetails(error, message, false, "", "", "", "", "", "", 0, 0, 0, "", 0, "", "");
+        return new LoadDetails(error, message, false, "", "", "", "", "", "", "", "", 0, 0, 0, "", 0, "", "");
     }
 }

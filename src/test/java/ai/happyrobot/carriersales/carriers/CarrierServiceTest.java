@@ -12,6 +12,8 @@ import ai.happyrobot.carriersales.fmcsa.exception.FmcsaUnavailableException;
 import ai.happyrobot.carriersales.fmcsa.model.FmcsaCarrier;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** Carrier values are taken from real FMCSA replies captured on 2026-10-19. */
 class CarrierServiceTest {
@@ -94,13 +96,17 @@ class CarrierServiceTest {
         assertThat(CarrierService.hasActiveOperatingAuthority(SCHNEIDER)).isTrue();
     }
 
-    @Test
-    void cleansSpokenMcNumbers() {
+    // Regression: formats seen in real calls ("MC 133655", "m c 133655") and other ways of saying it.
+    @ParameterizedTest
+    @ValueSource(strings = {"133655", "MC133655", "MC 133655", "m c 133655", "MC-133655", "mc# 133655", "mc-0133655"})
+    void cleansSpokenMcNumbers(String spoken) {
         when(fmcsa.findByMcNumber("133655")).thenReturn(Optional.of(SCHNEIDER));
 
-        service.verify("mc-0133655");
+        VerifyResult result = service.verify(spoken);
 
         verify(fmcsa).findByMcNumber("133655");
+        assertThat(result.eligible()).isTrue();
+        assertThat(result.carrierName()).isEqualTo("Schneider National Carriers Inc");
     }
 
     @Test

@@ -6,6 +6,7 @@ public record LoadSummary(
         String origin,
         String destination,
         String pickupDatetime,
+        String pickupDisplay,
         String equipmentType,
         int loadboardRate,
         int miles) {

@@ -40,9 +40,10 @@ class LoadApiTest {
 
     private static final Set<String> SEARCH_FIELDS = Set.of("error", "message", "found", "loads");
     private static final Set<String> SUMMARY_FIELDS = Set.of("load_id", "origin", "destination",
-            "pickup_datetime", "equipment_type", "loadboard_rate", "miles");
+            "pickup_datetime", "pickup_display", "equipment_type", "loadboard_rate", "miles");
     private static final Set<String> DETAILS_FIELDS = Set.of("error", "message", "available", "load_id", "origin",
-            "destination", "pickup_datetime", "delivery_datetime", "equipment_type", "loadboard_rate", "miles",
+            "destination", "pickup_datetime", "pickup_display", "delivery_datetime", "delivery_display",
+            "equipment_type", "loadboard_rate", "miles",
             "weight", "commodity_type", "num_of_pieces", "dimensions", "notes");
 
     @Autowired
@@ -182,7 +183,7 @@ class LoadApiTest {
     }
 
     private static TmsLoad futureLoad() {
-        LocalDateTime pickup = LocalDateTime.now(LoadService.BROKERAGE_TIME).plusDays(3);
+        LocalDateTime pickup = LocalDateTime.now(LoadFormatter.BROKERAGE_TIME).plusDays(3);
         return new TmsLoad("LD00979", "Houston", "TX", "77001", "Dallas", "TX", "75201",
                 pickup, pickup.plusHours(6), EquipmentType.DRY_VAN, 1850, 239, "OPEN",
                 7290, "Machinery", 23, "45ft x 8ft x 9ft", "", SECRET_MAX_BUY);
