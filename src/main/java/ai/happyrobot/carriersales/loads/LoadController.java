@@ -34,4 +34,10 @@ public class LoadController {
     public LoadDetails details(@PathVariable String loadId) {
         return loadService.details(loadId);
     }
+
+    // HappyRobot's test call sends an empty load_id, which hits /api/loads/ itself.
+    @GetMapping({"", "/"})
+    public LoadDetails detailsWithoutId() {
+        return loadService.details("");
+    }
 }

@@ -5,6 +5,7 @@ import ai.happyrobot.carriersales.loads.model.LoadSummary;
 import ai.happyrobot.carriersales.loads.model.SearchResult;
 import ai.happyrobot.carriersales.tms.TmsClient;
 import ai.happyrobot.carriersales.tms.exception.TmsErrorException;
+import ai.happyrobot.carriersales.tms.exception.TmsFaultException;
 import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import ai.happyrobot.carriersales.tms.protocol.TmsRequest;
 import ai.happyrobot.carriersales.web.exception.BadRequestException;
@@ -26,6 +27,8 @@ import org.springframework.stereotype.Service;
 /**
  * Load search and detail for the voice agent: turns spoken filters into a TMS query, hides loads that
  * can't be offered, and maps what's left to small, speakable responses. MAX_BUY never leaves this class.
+ * Every outcome, including bad input and a TMS outage, is a normal result with an error code and a
+ * sentence: HappyRobot only reads 200 responses.
  */
 @Service
 public class LoadService {
@@ -38,7 +41,15 @@ public class LoadService {
     // A truck averages well under this over a whole trip; above it the load data can't be real.
     private static final double MAX_PLAUSIBLE_MPH = 60;
     private static final Pattern LOAD_ID = Pattern.compile("[A-Z0-9]{1,12}");
+
+    static final String INVALID_REQUEST = "INVALID_REQUEST";
+    static final String NOT_FOUND = "NOT_FOUND";
+    static final String TMS_UNAVAILABLE = "TMS_UNAVAILABLE";
+    static final String TMS_ERROR = "TMS_ERROR";
+
     private static final String NOT_AVAILABLE = "That load isn't available.";
+    private static final String SYSTEM_SLOW = "Our load system is slow right now, give me a moment and I'll try again.";
+    private static final String SYSTEM_ERROR = "Our load system couldn't handle that request right now.";
 
     private final TmsClient tms;
     private final Clock clock;
@@ -56,6 +67,69 @@ public class LoadService {
 
     public SearchResult search(String originState, String originCity, String destinationState,
                                String destinationCity, String equipment, String pickupDate) {
+        try {
+            Map<String, String> filters = filters(originState, originCity, destinationState, destinationCity,
+                    equipment, pickupDate);
+            LocalDateTime now = LocalDateTime.now(clock);
+            List<LoadSummary> loads = tms.send(TmsRequest.loadQuery(filters)).stream()
+                    .filter(load -> isOffered(load, now))
+                    .sorted(Comparator.comparing(TmsLoad::pickupAt))
+                    .limit(MAX_RESULTS)
+                    .map(LoadService::toSummary)
+                    .toList();
+
+            if (loads.isEmpty()) {
+                return new SearchResult("", "No loads found for that lane.", false, List.of());
+            }
+            String message = loads.size() == 1 ? "I found 1 load." : "I found " + loads.size() + " loads.";
+            return new SearchResult("", message, true, loads);
+        } catch (BadRequestException e) {
+            return SearchResult.problem(INVALID_REQUEST, e.getMessage());
+        } catch (TmsFaultException e) {
+            return SearchResult.problem(TMS_UNAVAILABLE, SYSTEM_SLOW);
+        } catch (TmsErrorException e) {
+            if (e.code().equals("MISSING_FIELD")) {
+                return SearchResult.problem(INVALID_REQUEST,
+                        "I couldn't search with those details. Can you give me the lane again?");
+            }
+            log.warn("Unexpected TMS error {}: {}", e.code(), e.tmsMessage());
+            return SearchResult.problem(TMS_ERROR, SYSTEM_ERROR);
+        }
+    }
+
+    public LoadDetails details(String loadId) {
+        if (loadId == null || loadId.isBlank()) {
+            return LoadDetails.unavailable(INVALID_REQUEST, "Which load number are you calling about?");
+        }
+        String id = loadId.trim().toUpperCase(Locale.ROOT);
+        if (!LOAD_ID.matcher(id).matches()) {
+            return LoadDetails.unavailable(INVALID_REQUEST, "I didn't catch the load number. Can you read it again?");
+        }
+
+        try {
+            List<TmsLoad> found = tms.send(TmsRequest.loadGet(id));
+            if (found.isEmpty()) {
+                return LoadDetails.unavailable(NOT_FOUND, NOT_AVAILABLE);
+            }
+            TmsLoad load = found.getFirst();
+            if (!isOffered(load, LocalDateTime.now(clock)) || isImplausible(load)) {
+                return LoadDetails.unavailable(NOT_FOUND, NOT_AVAILABLE);
+            }
+            return toDetails(load);
+        } catch (TmsFaultException e) {
+            return LoadDetails.unavailable(TMS_UNAVAILABLE, SYSTEM_SLOW);
+        } catch (TmsErrorException e) {
+            if (e.code().equals("NOT_FOUND")) {
+                return LoadDetails.unavailable(NOT_FOUND, NOT_AVAILABLE);
+            }
+            log.warn("Unexpected TMS error {}: {}", e.code(), e.tmsMessage());
+            return LoadDetails.unavailable(TMS_ERROR, SYSTEM_ERROR);
+        }
+    }
+
+    // Blank values are ignored: HappyRobot always sends all six params, empty when not mentioned.
+    private static Map<String, String> filters(String originState, String originCity, String destinationState,
+                                               String destinationCity, String equipment, String pickupDate) {
         Map<String, String> filters = new LinkedHashMap<>();
         if (hasText(originState)) filters.put("ORIG_STATE", LoadFormatter.state(originState));
         if (hasText(originCity)) filters.put("ORIG_CITY", LoadFormatter.city(originCity));
@@ -66,46 +140,7 @@ public class LoadService {
         if (filters.isEmpty()) {
             throw new BadRequestException("Where would you like to pick up or deliver, and what equipment do you run?");
         }
-
-        LocalDateTime now = LocalDateTime.now(clock);
-        List<LoadSummary> loads = tms.send(TmsRequest.loadQuery(filters)).stream()
-                .filter(load -> isOffered(load, now))
-                .sorted(Comparator.comparing(TmsLoad::pickupAt))
-                .limit(MAX_RESULTS)
-                .map(LoadService::toSummary)
-                .toList();
-
-        if (loads.isEmpty()) {
-            return new SearchResult(false, "No loads found for that lane.", List.of());
-        }
-        String message = loads.size() == 1 ? "I found 1 load." : "I found " + loads.size() + " loads.";
-        return new SearchResult(true, message, loads);
-    }
-
-    public LoadDetails details(String loadId) {
-        String id = loadId.trim().toUpperCase(Locale.ROOT);
-        if (!LOAD_ID.matcher(id).matches()) {
-            throw new BadRequestException("I didn't catch the load number. Can you read it again?");
-        }
-
-        List<TmsLoad> found;
-        try {
-            found = tms.send(TmsRequest.loadGet(id));
-        } catch (TmsErrorException e) {
-            if (e.code().equals("NOT_FOUND")) {
-                return LoadDetails.unavailable(NOT_AVAILABLE);
-            }
-            throw e;
-        }
-        if (found.isEmpty()) {
-            return LoadDetails.unavailable(NOT_AVAILABLE);
-        }
-
-        TmsLoad load = found.getFirst();
-        if (!isOffered(load, LocalDateTime.now(clock)) || isImplausible(load)) {
-            return LoadDetails.unavailable(NOT_AVAILABLE);
-        }
-        return toDetails(load);
+        return filters;
     }
 
     private static boolean isOffered(TmsLoad load, LocalDateTime now) {
@@ -140,8 +175,9 @@ public class LoadService {
 
     private static LoadDetails toDetails(TmsLoad load) {
         return new LoadDetails(
+                "",
+                "",
                 true,
-                null,
                 load.loadId(),
                 load.originCity() + ", " + load.originState(),
                 load.destinationCity() + ", " + load.destinationState(),

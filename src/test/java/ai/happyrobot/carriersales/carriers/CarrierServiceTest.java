@@ -1,7 +1,6 @@
 package ai.happyrobot.carriersales.carriers;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -11,7 +10,6 @@ import ai.happyrobot.carriersales.carriers.model.VerifyResult;
 import ai.happyrobot.carriersales.fmcsa.FmcsaClient;
 import ai.happyrobot.carriersales.fmcsa.exception.FmcsaUnavailableException;
 import ai.happyrobot.carriersales.fmcsa.model.FmcsaCarrier;
-import ai.happyrobot.carriersales.web.exception.BadRequestException;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -32,8 +30,9 @@ class CarrierServiceTest {
 
         VerifyResult result = service.verify("MC 133655");
 
+        assertThat(result.error()).isEmpty();
         assertThat(result.eligible()).isTrue();
-        assertThat(result.reason()).isNull();
+        assertThat(result.reason()).isEmpty();
         assertThat(result.mcNumber()).isEqualTo("133655");
         assertThat(result.carrierName()).isEqualTo("Schneider National Carriers Inc");
         assertThat(result.homeBase()).isEqualTo("Green Bay, WI");
@@ -58,10 +57,11 @@ class CarrierServiceTest {
 
         VerifyResult result = service.verify("999999");
 
+        assertThat(result.error()).isEqualTo("NOT_FOUND");
         assertThat(result.eligible()).isFalse();
         assertThat(result.reason()).isEqualTo("NOT_FOUND");
         assertThat(result.message()).contains("read it to me again");
-        assertThat(result.carrierName()).isNull();
+        assertThat(result.carrierName()).isEmpty();
     }
 
     @Test
@@ -72,10 +72,12 @@ class CarrierServiceTest {
 
         VerifyResult result = service.verify("100000");
 
+        assertThat(result.error()).isEqualTo("NOT_ELIGIBLE");
         assertThat(result.eligible()).isFalse();
         assertThat(result.reason()).isEqualTo("NO_ACTIVE_AUTHORITY");
         assertThat(result.message()).contains("Thanks for calling HappyRobot Logistics");
-        assertThat(result.carrierName()).isNull(); // no profile for a carrier we can't work with
+        assertThat(result.carrierName()).isEmpty(); // no profile for a carrier we can't work with
+        assertThat(result.powerUnits()).isZero();
     }
 
     @Test
@@ -103,14 +105,22 @@ class CarrierServiceTest {
 
     @Test
     void mcWithoutDigitsIsRejectedBeforeCallingFmcsa() {
-        assertThatThrownBy(() -> service.verify("I don't remember")).isInstanceOf(BadRequestException.class);
+        for (String spoken : new String[] {"I don't remember", "", null}) {
+            VerifyResult result = service.verify(spoken);
+
+            assertThat(result.error()).isEqualTo("INVALID_REQUEST");
+            assertThat(result.eligible()).isFalse();
+        }
         verifyNoInteractions(fmcsa);
     }
 
     @Test
-    void fmcsaDownIsPassedOnForTheErrorHandler() {
+    void fmcsaDownIsAnFmcsaUnavailableAnswer() {
         when(fmcsa.findByMcNumber("133655")).thenThrow(new FmcsaUnavailableException("timeout"));
 
-        assertThatThrownBy(() -> service.verify("133655")).isInstanceOf(FmcsaUnavailableException.class);
+        VerifyResult result = service.verify("133655");
+
+        assertThat(result.error()).isEqualTo("FMCSA_UNAVAILABLE");
+        assertThat(result.message()).contains("try again in a few minutes");
     }
 }

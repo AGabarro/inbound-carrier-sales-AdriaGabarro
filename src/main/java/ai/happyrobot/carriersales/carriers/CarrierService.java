@@ -2,6 +2,7 @@ package ai.happyrobot.carriersales.carriers;
 
 import ai.happyrobot.carriersales.carriers.model.VerifyResult;
 import ai.happyrobot.carriersales.fmcsa.FmcsaClient;
+import ai.happyrobot.carriersales.fmcsa.exception.FmcsaUnavailableException;
 import ai.happyrobot.carriersales.fmcsa.model.FmcsaCarrier;
 import ai.happyrobot.carriersales.web.exception.BadRequestException;
 import java.util.Arrays;
@@ -17,8 +18,11 @@ import org.springframework.stereotype.Service;
 @Service
 public class CarrierService {
 
+    static final String INVALID_REQUEST = "INVALID_REQUEST";
     static final String NOT_FOUND = "NOT_FOUND";
+    static final String NOT_ELIGIBLE = "NOT_ELIGIBLE";
     static final String NO_ACTIVE_AUTHORITY = "NO_ACTIVE_AUTHORITY";
+    static final String FMCSA_UNAVAILABLE = "FMCSA_UNAVAILABLE";
 
     private final FmcsaClient fmcsa;
 
@@ -26,26 +30,39 @@ public class CarrierService {
         this.fmcsa = fmcsa;
     }
 
+    // Every outcome is a normal result with an error code and a sentence: HappyRobot only reads 200 responses.
     public VerifyResult verify(String spokenMcNumber) {
-        String mc = mcNumber(spokenMcNumber);
-        Optional<FmcsaCarrier> found = fmcsa.findByMcNumber(mc);
+        String mc;
+        try {
+            mc = mcNumber(spokenMcNumber);
+        } catch (BadRequestException e) {
+            return VerifyResult.notEligible(INVALID_REQUEST, "", e.getMessage(), "");
+        }
+
+        Optional<FmcsaCarrier> found;
+        try {
+            found = fmcsa.findByMcNumber(mc);
+        } catch (FmcsaUnavailableException e) {
+            return VerifyResult.notEligible(FMCSA_UNAVAILABLE, "",
+                    "I can't check your MC number right now. Please try again in a few minutes.", mc);
+        }
 
         if (found.isEmpty()) {
-            return VerifyResult.notEligible(NOT_FOUND,
+            return VerifyResult.notEligible(NOT_FOUND, NOT_FOUND,
                     "I couldn't find that MC number. Can you read it to me again?", mc);
         }
         FmcsaCarrier carrier = found.get();
         if (!hasActiveOperatingAuthority(carrier)) {
-            return VerifyResult.notEligible(NO_ACTIVE_AUTHORITY,
+            return VerifyResult.notEligible(NOT_ELIGIBLE, NO_ACTIVE_AUTHORITY,
                     "I'm sorry, I can't verify active operating authority for that MC number, so I can't book "
                             + "loads with you today. Thanks for calling HappyRobot Logistics.", mc);
         }
-        return new VerifyResult(true, null, "You're verified.", mc,
+        return new VerifyResult("", "You're verified.", true, "", mc,
                 titleCase(carrier.legalName()),
                 titleCase(carrier.dbaName()),
                 homeBase(carrier),
-                carrier.powerUnits() > 0 ? carrier.powerUnits() : null,
-                carrier.drivers() > 0 ? carrier.drivers() : null,
+                carrier.powerUnits(),
+                carrier.drivers(),
                 safetyRating(carrier.safetyRating()));
     }
 
@@ -68,20 +85,20 @@ public class CarrierService {
 
     private static String homeBase(FmcsaCarrier carrier) {
         if (carrier.city() == null || carrier.state() == null) {
-            return null;
+            return "";
         }
         return titleCase(carrier.city()) + ", " + carrier.state();
     }
 
     private static String safetyRating(String code) {
         if (code == null) {
-            return null;
+            return "";
         }
         return switch (code) {
             case "S" -> "Satisfactory";
             case "C" -> "Conditional";
             case "U" -> "Unsatisfactory";
-            default -> null;
+            default -> "";
         };
     }
 
@@ -89,7 +106,7 @@ public class CarrierService {
     // "LLC" stays as is, otherwise the voice would read "Llc" as a word.
     private static String titleCase(String text) {
         if (text == null || text.isBlank()) {
-            return null;
+            return "";
         }
         return Arrays.stream(text.trim().toLowerCase(Locale.ROOT).split("\\s+"))
                 .map(word -> word.equals("llc") ? "LLC" : Character.toUpperCase(word.charAt(0)) + word.substring(1))

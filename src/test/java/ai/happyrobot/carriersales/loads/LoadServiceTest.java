@@ -1,7 +1,6 @@
 package ai.happyrobot.carriersales.loads;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -17,7 +16,6 @@ import ai.happyrobot.carriersales.tms.exception.TmsFaultException;
 import ai.happyrobot.carriersales.tms.model.EquipmentType;
 import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import ai.happyrobot.carriersales.tms.protocol.TmsRequest;
-import ai.happyrobot.carriersales.web.exception.BadRequestException;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -52,10 +50,41 @@ class LoadServiceTest {
     }
 
     @Test
-    void searchWithoutAnyFilterAsksForOne() {
-        assertThatThrownBy(() -> service.search(null, " ", null, null, null, null))
-                .isInstanceOf(BadRequestException.class);
+    void blankFiltersAreIgnoredAndAllBlankAsksForOne() {
+        // HappyRobot sends all six params, empty when the carrier didn't mention them.
+        SearchResult result = service.search("", " ", "", "", "", "");
+
+        assertThat(result.error()).isEqualTo("INVALID_REQUEST");
+        assertThat(result.found()).isFalse();
+        assertThat(result.loads()).isEmpty();
+        assertThat(result.message()).contains("pick up or deliver");
         verifyNoInteractions(tms);
+    }
+
+    @Test
+    void unknownEquipmentIsAnInvalidRequestAnswer() {
+        SearchResult result = service.search("TX", "", "", "", "tanker", "");
+
+        assertThat(result.error()).isEqualTo("INVALID_REQUEST");
+        assertThat(result.message()).contains("dry van, reefer, flatbed or power only");
+        verifyNoInteractions(tms);
+    }
+
+    @Test
+    void tmsDownIsATmsUnavailableAnswer() {
+        when(tms.send(any())).thenThrow(new TmsFaultException(FaultKind.TIMEOUT, "no reply"));
+
+        SearchResult result = service.search("TX", null, null, null, null, null);
+
+        assertThat(result.error()).isEqualTo("TMS_UNAVAILABLE");
+        assertThat(result.found()).isFalse();
+    }
+
+    @Test
+    void tmsRejectingTheSearchIsAnInvalidRequestAnswer() {
+        when(tms.send(any())).thenThrow(new TmsErrorException("MISSING_FIELD", "Invalid EQTYPE"));
+
+        assertThat(service.search("TX", null, null, null, null, null).error()).isEqualTo("INVALID_REQUEST");
     }
 
     @Test
@@ -64,6 +93,7 @@ class LoadServiceTest {
 
         SearchResult result = service.search("TX", null, null, null, null, null);
 
+        assertThat(result.error()).isEmpty();
         assertThat(result.found()).isTrue();
         assertThat(result.message()).isEqualTo("I found 1 load.");
         var summary = result.loads().getFirst();
@@ -97,6 +127,7 @@ class LoadServiceTest {
 
         SearchResult result = service.search("TX", null, null, null, null, null);
 
+        assertThat(result.error()).isEmpty(); // no loads is an answer, not an error
         assertThat(result.found()).isFalse();
         assertThat(result.message()).isEqualTo("No loads found for that lane.");
         assertThat(result.loads()).isEmpty();
@@ -110,6 +141,7 @@ class LoadServiceTest {
 
         LoadDetails details = service.details(" ld00979 ");
 
+        assertThat(details.error()).isEmpty();
         assertThat(details.available()).isTrue();
         assertThat(details.loadId()).isEqualTo("LD00979");
         assertThat(details.weight()).isEqualTo(7290);
@@ -124,9 +156,11 @@ class LoadServiceTest {
 
         LoadDetails details = service.details("LD99999");
 
+        assertThat(details.error()).isEqualTo("NOT_FOUND");
         assertThat(details.available()).isFalse();
         assertThat(details.message()).isEqualTo("That load isn't available.");
-        assertThat(details.loadId()).isNull();
+        assertThat(details.loadId()).isEmpty();
+        assertThat(details.loadboardRate()).isZero();
     }
 
     @Test
@@ -150,15 +184,27 @@ class LoadServiceTest {
 
     @Test
     void unsafeLoadIdIsRejectedBeforeCallingTheTms() {
-        assertThatThrownBy(() -> service.details("LD1|CMD:LOAD_BOOK")).isInstanceOf(BadRequestException.class);
+        assertThat(service.details("LD1|CMD:LOAD_BOOK").error()).isEqualTo("INVALID_REQUEST");
         verifyNoInteractions(tms);
     }
 
     @Test
-    void tmsFaultIsPassedOnForTheErrorHandler() {
+    void emptyLoadIdAsksWhichLoad() {
+        LoadDetails details = service.details("");
+
+        assertThat(details.error()).isEqualTo("INVALID_REQUEST");
+        assertThat(details.message()).isEqualTo("Which load number are you calling about?");
+        verifyNoInteractions(tms);
+    }
+
+    @Test
+    void tmsDownIsATmsUnavailableDetailsAnswer() {
         when(tms.send(any())).thenThrow(new TmsFaultException(FaultKind.TIMEOUT, "no reply"));
 
-        assertThatThrownBy(() -> service.details("LD00979")).isInstanceOf(TmsFaultException.class);
+        LoadDetails details = service.details("LD00979");
+
+        assertThat(details.error()).isEqualTo("TMS_UNAVAILABLE");
+        assertThat(details.available()).isFalse();
     }
 
     /** A plausible Houston -> Dallas load: 239 miles in 6 hours. */
