@@ -19,6 +19,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +41,8 @@ public class LoadService {
     private static final int MAX_RESULTS = 3;
     // Each search candidate is confirmed with its full record; this bounds the extra TMS calls.
     private static final int MAX_DETAIL_LOOKUPS = 5;
+    // Candidates are confirmed in parallel; whatever isn't confirmed in time is left out.
+    private static final Duration CONFIRM_BUDGET = Duration.ofSeconds(4);
     // A truck averages well under this over a whole trip; above it the load data can't be real.
     private static final double MAX_PLAUSIBLE_MPH = 60;
     private static final Pattern LOAD_ID = Pattern.compile("[A-Z0-9]{1,12}");
@@ -51,6 +60,8 @@ public class LoadService {
 
     private final TmsClient tms;
     private final Clock clock;
+    private final Duration confirmBudget;
+    private final ExecutorService lookups = Executors.newVirtualThreadPerTaskExecutor();
 
     @Autowired
     public LoadService(TmsClient tms) {
@@ -58,8 +69,13 @@ public class LoadService {
     }
 
     LoadService(TmsClient tms, Clock clock) {
+        this(tms, clock, CONFIRM_BUDGET);
+    }
+
+    LoadService(TmsClient tms, Clock clock, Duration confirmBudget) {
         this.tms = tms;
         this.clock = clock;
+        this.confirmBudget = confirmBudget;
     }
 
     public SearchResult search(String originState, String originCity, String destinationState,
@@ -168,22 +184,39 @@ public class LoadService {
 
     // Summaries have no delivery time: confirm each candidate with its full record so search and details agree.
     private List<LoadSummary> bookable(List<TmsLoad> candidates, LocalDateTime now) {
+        List<Future<Optional<TmsLoad>>> checks = candidates.stream()
+                .map(candidate -> lookups.submit(() -> confirm(candidate.loadId(), now)))
+                .toList();
+        long deadline = System.nanoTime() + confirmBudget.toNanos();
         List<LoadSummary> bookable = new ArrayList<>();
-        for (TmsLoad candidate : candidates) {
-            if (bookable.size() == MAX_RESULTS) {
-                break;
-            }
-            try {
-                List<TmsLoad> full = tms.send(TmsRequest.loadGet(candidate.loadId()));
-                if (!full.isEmpty() && isBookable(full.getFirst(), now)) {
-                    bookable.add(toSummary(full.getFirst()));
+        try {
+            for (int i = 0; i < checks.size() && bookable.size() < MAX_RESULTS; i++) {
+                try {
+                    long left = Math.max(0, deadline - System.nanoTime());
+                    checks.get(i).get(left, TimeUnit.NANOSECONDS).map(LoadService::toSummary).ifPresent(bookable::add);
+                } catch (TimeoutException e) {
+                    log.info("Load {} skipped in search: not confirmed in time", candidates.get(i).loadId());
+                } catch (ExecutionException e) {
+                    log.warn("Load {} skipped in search: {}", candidates.get(i).loadId(), e.getCause().toString());
                 }
-            } catch (TmsFaultException | TmsErrorException e) {
-                // Can't confirm it right now: skip it.
-                log.info("Load {} skipped in search: {}", candidate.loadId(), e.getMessage());
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            checks.forEach(check -> check.cancel(true));
         }
         return bookable;
+    }
+
+    // Empty if the load can't be offered or can't be confirmed right now.
+    private Optional<TmsLoad> confirm(String loadId, LocalDateTime now) {
+        try {
+            List<TmsLoad> full = tms.send(TmsRequest.loadGet(loadId));
+            return full.isEmpty() || !isBookable(full.getFirst(), now) ? Optional.empty() : Optional.of(full.getFirst());
+        } catch (TmsFaultException | TmsErrorException e) {
+            log.info("Load {} skipped in search: {}", loadId, e.getMessage());
+            return Optional.empty();
+        }
     }
 
     private static boolean isBookable(TmsLoad load, LocalDateTime now) {

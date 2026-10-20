@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -22,6 +23,7 @@ import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import ai.happyrobot.carriersales.tms.protocol.TmsCommand;
 import ai.happyrobot.carriersales.tms.protocol.TmsRequest;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
@@ -224,14 +226,28 @@ class LoadServiceTest {
     }
 
     @Test
-    void searchStopsLookingOnceItHasThreeBookableLoads() {
+    void keepsTheThreeSoonestEvenWhenLookupsFinishOutOfOrder() {
         givenTms(load("A", NOW.plusDays(1), "OPEN"), load("B", NOW.plusDays(2), "OPEN"),
                 load("C", NOW.plusDays(3), "OPEN"), load("D", NOW.plusDays(4), "OPEN"));
+        slowLookup("A", 200); // A answers last, but is still listed first
 
-        service.search("TX", null, null, null, null, null);
+        SearchResult result = service.search("TX", null, null, null, null, null);
 
-        // 1 search + 3 detail lookups; D is never fetched.
-        verify(tms, times(4)).send(any());
+        assertThat(result.loads()).extracting("loadId").containsExactly("A", "B", "C");
+    }
+
+    @Test
+    void aSlowLookupDoesNotHoldUpTheSearch() {
+        LoadService quick = new LoadService(tms, FIXED_CLOCK, Duration.ofMillis(300));
+        givenTms(load("STUCK", NOW.plusDays(1), "OPEN"), load("FINE", NOW.plusDays(2), "OPEN"));
+        slowLookup("STUCK", 5_000); // the TMS hanging on one load, like in the real call
+
+        long start = System.nanoTime();
+        SearchResult result = quick.search("TX", null, null, null, null, null);
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        assertThat(result.loads()).extracting("loadId").containsExactly("FINE");
+        assertThat(elapsedMs).isLessThan(1_500);
     }
 
     @Test
@@ -371,6 +387,13 @@ class LoadServiceTest {
         ArgumentCaptor<TmsRequest> sent = ArgumentCaptor.forClass(TmsRequest.class);
         verify(tms, atLeastOnce()).send(sent.capture());
         return sent.getAllValues().getFirst().fields();
+    }
+
+    private void slowLookup(String loadId, long millis) {
+        doAnswer(call -> {
+            Thread.sleep(millis);
+            return List.of(load(loadId, NOW.plusDays(1), "OPEN"));
+        }).when(tms).send(argThat(r -> r != null && loadId.equals(r.fields().get("LOAD_ID"))));
     }
 
     /** Like the real TMS: LOAD_QUERY returns every load, LOAD_GET returns the one asked for. */
