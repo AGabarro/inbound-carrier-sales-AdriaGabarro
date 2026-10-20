@@ -1,4 +1,4 @@
-package ai.happyrobot.carriersales.call;
+package ai.happyrobot.carriersales.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -9,24 +9,24 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
 
-class CallSessionStoreTest {
+class SessionStoreTest {
 
     private final MovableClock clock = new MovableClock(Instant.parse("2026-10-19T12:00:00Z"));
-    private final CallSessionStore store = new CallSessionStore(clock);
+    private final SessionStore store = new SessionStore(clock);
 
     @Test
     void newCallStartsInStateNew() {
-        CallSession session = store.getOrCreate("run-1");
+        Session session = store.getOrCreate("run-1");
 
         assertThat(session.callId()).isEqualTo("run-1");
-        assertThat(session.state()).isEqualTo(CallState.NEW);
+        assertThat(session.state()).isEqualTo(SessionState.NEW);
         assertThat(session.mcNumber()).isEmpty();
     }
 
     @Test
     void sameCallIdGivesTheSameSession() {
-        CallSession first = store.getOrCreate("run-1");
-        first.state(CallState.FMCSA_VERIFIED);
+        Session first = store.getOrCreate("run-1");
+        first.state(SessionState.FMCSA_VERIFIED);
 
         assertThat(store.getOrCreate("run-1")).isSameAs(first);
         assertThat(store.find("run-1")).containsSame(first);
@@ -34,9 +34,9 @@ class CallSessionStoreTest {
 
     @Test
     void callsAreKeptApart() {
-        store.getOrCreate("run-1").state(CallState.OTP_VERIFIED);
+        store.getOrCreate("run-1").state(SessionState.OTP_VERIFIED);
 
-        assertThat(store.getOrCreate("run-2").state()).isEqualTo(CallState.NEW);
+        assertThat(store.getOrCreate("run-2").state()).isEqualTo(SessionState.NEW);
     }
 
     @Test
@@ -46,7 +46,7 @@ class CallSessionStoreTest {
 
     @Test
     void sessionExpiresAfterAnHour() {
-        store.getOrCreate("run-1").state(CallState.OTP_VERIFIED);
+        store.getOrCreate("run-1").state(SessionState.OTP_VERIFIED);
 
         clock.advance(Duration.ofMinutes(59));
         assertThat(store.find("run-1")).isPresent();
@@ -54,12 +54,12 @@ class CallSessionStoreTest {
         clock.advance(Duration.ofMinutes(2));
         assertThat(store.find("run-1")).isEmpty();
         // A late request with the same id starts over: verification is never carried past the TTL.
-        assertThat(store.getOrCreate("run-1").state()).isEqualTo(CallState.NEW);
+        assertThat(store.getOrCreate("run-1").state()).isEqualTo(SessionState.NEW);
     }
 
     @Test
     void toStringNeverShowsTheCodeHash() {
-        CallSession session = store.getOrCreate("run-1");
+        Session session = store.getOrCreate("run-1");
         session.otpHash("deadbeef-hash");
 
         assertThat(session.toString()).doesNotContain("deadbeef");

@@ -7,8 +7,11 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.Arrays;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 // Between what the agent says and what the TMS expects: "dry van" <-> DRY_VAN, dates, labels.
 public final class LoadFormatter {
@@ -25,25 +28,25 @@ public final class LoadFormatter {
     private LoadFormatter() {
     }
 
-    public static EquipmentType equipment(String spoken) {
+    // Empty when we can't filter on it (the search then covers every equipment type on the lane).
+    public static Optional<EquipmentType> equipment(String spoken) {
         String key = spoken.toLowerCase(Locale.ROOT).replaceAll("[^a-z]", "");
-        return switch (key) {
+        return Optional.ofNullable(switch (key) {
             case "dryvan", "van", "dry" -> EquipmentType.DRY_VAN;
             case "reefer", "refer", "refrigerated", "fridge" -> EquipmentType.REEFER;
             case "flatbed", "flat" -> EquipmentType.FLATBED;
             case "poweronly", "power" -> EquipmentType.POWER_ONLY;
-            default -> throw new BadRequestException(
-                    "I didn't catch the equipment type. Is it dry van, reefer, flatbed or power only?");
-        };
+            case "stepdeck", "step", "dropdeck", "drop" -> EquipmentType.STEP_DECK;
+            default -> null;
+        });
     }
 
-    public static String equipmentLabel(EquipmentType type) {
-        return switch (type) {
-            case DRY_VAN -> "Dry Van";
-            case REEFER -> "Reefer";
-            case FLATBED -> "Flatbed";
-            case POWER_ONLY -> "Power Only";
-        };
+    // STEP_DECK -> "Step Deck", works for codes we don't know yet too.
+    public static String equipmentLabel(String code) {
+        return Arrays.stream(code.toLowerCase(Locale.ROOT).split("_"))
+                .filter(word -> !word.isEmpty())
+                .map(word -> Character.toUpperCase(word.charAt(0)) + word.substring(1))
+                .collect(Collectors.joining(" "));
     }
 
     public static String state(String input) {

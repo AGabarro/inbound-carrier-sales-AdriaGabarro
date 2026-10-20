@@ -5,10 +5,10 @@ import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import ai.happyrobot.carriersales.call.CallSession;
-import ai.happyrobot.carriersales.call.CallSessionStore;
-import ai.happyrobot.carriersales.call.CallState;
 import ai.happyrobot.carriersales.otp.model.OtpDelivery;
+import ai.happyrobot.carriersales.session.Session;
+import ai.happyrobot.carriersales.session.SessionState;
+import ai.happyrobot.carriersales.session.SessionStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
@@ -40,7 +40,7 @@ class OtpApiTest {
     private ObjectMapper json;
 
     @Autowired
-    private CallSessionStore sessions;
+    private SessionStore sessions;
 
     @MockitoBean
     private OtpSender sender;
@@ -89,7 +89,7 @@ class OtpApiTest {
 
         assertFields(verified, VERIFY_FIELDS);
         assertThat(verified.get("verified").asBoolean()).isTrue();
-        assertThat(sessions.find(callId).orElseThrow().state()).isEqualTo(CallState.OTP_VERIFIED);
+        assertThat(sessions.find(callId).orElseThrow().state()).isEqualTo(SessionState.OTP_VERIFIED);
     }
 
     @Test
@@ -111,8 +111,8 @@ class OtpApiTest {
 
     private String verifiedCall() {
         String callId = "run-" + UUID.randomUUID();
-        CallSession session = sessions.getOrCreate(callId);
-        session.state(CallState.FMCSA_VERIFIED);
+        Session session = sessions.getOrCreate(callId);
+        session.state(SessionState.FMCSA_VERIFIED);
         session.mcNumber("133655");
         session.carrierName("Schneider National Carriers Inc");
         return callId;

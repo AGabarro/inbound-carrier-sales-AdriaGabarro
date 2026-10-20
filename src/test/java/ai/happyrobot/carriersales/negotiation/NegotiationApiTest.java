@@ -6,11 +6,10 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import ai.happyrobot.carriersales.call.CallSessionStore;
-import ai.happyrobot.carriersales.call.CallState;
 import ai.happyrobot.carriersales.loads.LoadFormatter;
+import ai.happyrobot.carriersales.session.SessionState;
+import ai.happyrobot.carriersales.session.SessionStore;
 import ai.happyrobot.carriersales.tms.TmsClient;
-import ai.happyrobot.carriersales.tms.model.EquipmentType;
 import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -43,7 +42,7 @@ class NegotiationApiTest {
     private ObjectMapper json;
 
     @Autowired
-    private CallSessionStore sessions;
+    private SessionStore sessions;
 
     @MockitoBean
     private TmsClient tms;
@@ -53,10 +52,10 @@ class NegotiationApiTest {
     @BeforeEach
     void verifiedCallAndLoad() {
         callId = "run-" + UUID.randomUUID();
-        sessions.getOrCreate(callId).state(CallState.OTP_VERIFIED);
+        sessions.getOrCreate(callId).state(SessionState.OTP_VERIFIED);
         LocalDateTime pickup = LocalDateTime.now(LoadFormatter.BROKERAGE_TIME).plusDays(2);
         when(tms.send(any())).thenReturn(List.of(new TmsLoad("LD00979", "Anaheim", "CA", "92801", "El Paso", "TX",
-                "79901", pickup, pickup.plusHours(20), EquipmentType.DRY_VAN, 1961, 679, "OPEN",
+                "79901", pickup, pickup.plusHours(20), "DRY_VAN", 1961, 679, "OPEN",
                 36031, "Electronics", 19, "44ft x 8ft x 9ft", "", MAX)));
     }
 

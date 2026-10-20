@@ -12,7 +12,7 @@ import ai.happyrobot.carriersales.loads.LoadFormatter;
 import ai.happyrobot.carriersales.otp.OtpSender;
 import ai.happyrobot.carriersales.otp.model.OtpDelivery;
 import ai.happyrobot.carriersales.tms.TmsClient;
-import ai.happyrobot.carriersales.tms.model.EquipmentType;
+import ai.happyrobot.carriersales.tms.model.TmsBooking;
 import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -62,7 +62,7 @@ class CallFlowTest {
                 "SCHNEIDER NATIONAL CARRIERS INC", null, "Y", "A", "A", "A", "S", "GREEN BAY", "WI", 9866, 11335)));
         LocalDateTime pickup = LocalDateTime.now(LoadFormatter.BROKERAGE_TIME).plusDays(2);
         when(tms.send(any())).thenReturn(List.of(new TmsLoad("LD00979", "Anaheim", "CA", "92801", "El Paso", "TX",
-                "79901", pickup, pickup.plusHours(20), EquipmentType.DRY_VAN, 1961, 679, "OPEN",
+                "79901", pickup, pickup.plusHours(20), "DRY_VAN", 1961, 679, "OPEN",
                 36031, "Electronics", 19, "44ft x 8ft x 9ft", "", 2300)));
 
         // 1. "Anything going to Texas?" before any verification: refused.
@@ -99,6 +99,15 @@ class CallFlowTest {
         assertThat(deal.get("decision").asText()).isEqualTo("accept");
         assertThat(deal.get("final").asBoolean()).isTrue();
         assertThat(counter.toString() + deal).doesNotContain("2300");
+
+        // 7. Booked at the agreed rate (never a rate from the request), then handed to a rep.
+        when(tms.book("LD00979", "133655", 1961)).thenReturn(new TmsBooking("LD00979", "GFZKYZRT3K4JOEAE", "PENDING",
+                LocalDateTime.now()));
+        JsonNode booking = post("/api/bookings", "{\"load_id\": \"LD00979\"}");
+        assertThat(booking.get("booked").asBoolean()).isTrue();
+        assertThat(booking.get("agreed_rate").asInt()).isEqualTo(1961);
+        assertThat(booking.get("booking_reference").asText()).isEqualTo("GFZKYZRT3K4JOEAE");
+        assertThat(booking.get("transferred").asBoolean()).isTrue();
     }
 
     private JsonNode search() throws Exception {

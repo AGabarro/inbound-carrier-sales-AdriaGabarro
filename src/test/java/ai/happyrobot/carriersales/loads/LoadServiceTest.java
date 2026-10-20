@@ -18,7 +18,6 @@ import ai.happyrobot.carriersales.tms.TmsClient;
 import ai.happyrobot.carriersales.tms.exception.FaultKind;
 import ai.happyrobot.carriersales.tms.exception.TmsErrorException;
 import ai.happyrobot.carriersales.tms.exception.TmsFaultException;
-import ai.happyrobot.carriersales.tms.model.EquipmentType;
 import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import ai.happyrobot.carriersales.tms.protocol.TmsCommand;
 import ai.happyrobot.carriersales.tms.protocol.TmsRequest;
@@ -84,7 +83,7 @@ class LoadServiceTest {
         // Second real call: Anaheim, CA -> TX, dry van -> LD00979 Anaheim -> El Paso, $1,961, 679 mi.
         LocalDateTime pickup = NOW.plusDays(5);
         givenTms(new TmsLoad("LD00979", "Anaheim", "CA", "92801", "El Paso", "TX", "79901",
-                pickup, pickup.plusHours(20), EquipmentType.DRY_VAN, 1961, 679, "OPEN",
+                pickup, pickup.plusHours(20), "DRY_VAN", 1961, 679, "OPEN",
                 10000, "Electronics", 20, "48ft x 8ft x 9ft", "", 2300));
 
         SearchResult result = service.search("CA", "Anaheim", "TX", "", "dryvan", "");
@@ -112,12 +111,27 @@ class LoadServiceTest {
     }
 
     @Test
-    void unknownEquipmentIsAnInvalidRequestAnswer() {
-        SearchResult result = service.search("TX", "", "", "", "tanker", "");
+    void equipmentWeCantFilterOnSearchesTheWholeLane() {
+        givenTms(load("LD00979", NOW.plusDays(2), "OPEN"));
 
-        assertThat(result.error()).isEqualTo("INVALID_REQUEST");
-        assertThat(result.message()).contains("dry van, reefer, flatbed or power only");
-        verifyNoInteractions(tms);
+        SearchResult result = service.search("TX", "", "", "", "lowboy", "");
+
+        assertThat(firstQuery()).containsExactly(Map.entry("ORIG_STATE", "TX"));
+        assertThat(result.found()).isTrue();
+        assertThat(result.message()).isEqualTo("I don't have lowboy loads listed, but here's what's moving on that "
+                + "lane: I've got 1 load. Each one says the equipment it needs.");
+    }
+
+    @Test
+    void stepDeckIsAFilterAndALabel() {
+        LocalDateTime pickup = NOW.plusDays(1);
+        givenTms(new TmsLoad("LD00974", "Flint", "MI", "48502", "Orlando", "FL", "32801", pickup, pickup.plusHours(20),
+                "STEP_DECK", 2165, 1150, "OPEN", 20000, "Steel", 10, "48ft x 8ft x 9ft", "", 2500));
+
+        SearchResult result = service.search("", "", "FL", "", "drop deck", "");
+
+        assertThat(firstQuery()).containsEntry("EQTYPE", "STEP_DECK");
+        assertThat(result.loads().getFirst().equipmentType()).isEqualTo("Step Deck");
     }
 
     @Test
@@ -145,7 +159,7 @@ class LoadServiceTest {
 
         assertThat(result.error()).isEmpty();
         assertThat(result.found()).isTrue();
-        assertThat(result.message()).isEqualTo("I found 1 load.");
+        assertThat(result.message()).isEqualTo("I've got 1 load for you.");
         var summary = result.loads().getFirst();
         assertThat(summary.loadId()).isEqualTo("LD00979");
         assertThat(summary.origin()).isEqualTo("Houston, TX");
@@ -169,7 +183,7 @@ class LoadServiceTest {
         SearchResult result = service.search("TX", null, null, null, null, null);
 
         assertThat(result.loads()).extracting("loadId").containsExactly("FIRST", "SECOND", "THIRD");
-        assertThat(result.message()).isEqualTo("I found 3 loads.");
+        assertThat(result.message()).isEqualTo("I've got 3 loads for you.");
     }
 
     @Test
@@ -180,7 +194,7 @@ class LoadServiceTest {
 
         assertThat(result.error()).isEmpty(); // no loads is an answer, not an error
         assertThat(result.found()).isFalse();
-        assertThat(result.message()).isEqualTo("No loads found for that lane.");
+        assertThat(result.message()).isEqualTo("Nothing open on that lane right now.");
         assertThat(result.loads()).isEmpty();
     }
 
@@ -189,7 +203,7 @@ class LoadServiceTest {
         // The real call: LD00962 Dallas -> New York, 1,371 miles in 17 hours (81 mph), listed first.
         LocalDateTime pickup = NOW.plusDays(2);
         TmsLoad implausible = new TmsLoad("LD00962", "Dallas", "TX", "75201", "New York", "NY", "10001",
-                pickup, pickup.plusHours(17), EquipmentType.DRY_VAN, 3833, 1371, "OPEN",
+                pickup, pickup.plusHours(17), "DRY_VAN", 3833, 1371, "OPEN",
                 7290, "Machinery", 23, "45ft x 8ft x 9ft", "", 4200);
         givenTms(implausible, load("LD00979", NOW.plusDays(3), "OPEN"));
 
@@ -266,7 +280,7 @@ class LoadServiceTest {
         // LD00992 from the real TMS: Honolulu -> Amarillo, 3,495 miles in 21 hours.
         LocalDateTime pickup = NOW.plusDays(1);
         TmsLoad honolulu = new TmsLoad("LD00992", "Honolulu", "HI", "96813", "Amarillo", "TX", "79101",
-                pickup, pickup.plusHours(21), EquipmentType.REEFER, 11147, 3495, "OPEN",
+                pickup, pickup.plusHours(21), "REEFER", 11147, 3495, "OPEN",
                 7290, "Machinery", 23, "45ft x 8ft x 9ft", "", 12922);
         when(tms.send(any())).thenReturn(List.of(honolulu));
 
@@ -374,7 +388,7 @@ class LoadServiceTest {
     /** A plausible Houston -> Dallas load: 239 miles in 6 hours. */
     private static TmsLoad load(String id, LocalDateTime pickup, String status) {
         return new TmsLoad(id, "Houston", "TX", "77001", "Dallas", "TX", "75201",
-                pickup, pickup.plusHours(6), EquipmentType.DRY_VAN, 1850, 239, status,
+                pickup, pickup.plusHours(6), "DRY_VAN", 1850, 239, status,
                 7290, "Machinery", 23, "45ft x 8ft x 9ft", "", 2100);
     }
 }

@@ -1,16 +1,16 @@
 package ai.happyrobot.carriersales.negotiation;
 
-import ai.happyrobot.carriersales.call.CallSession;
-import ai.happyrobot.carriersales.call.CallSessionStore;
-import ai.happyrobot.carriersales.call.CallState;
-import ai.happyrobot.carriersales.call.Negotiation;
-import ai.happyrobot.carriersales.call.Negotiation.Round;
 import ai.happyrobot.carriersales.carriers.McNumber;
 import ai.happyrobot.carriersales.loads.LoadService;
 import ai.happyrobot.carriersales.loads.model.LoadLookup;
 import ai.happyrobot.carriersales.negotiation.NegotiationRules.Decision;
 import ai.happyrobot.carriersales.negotiation.NegotiationRules.Kind;
 import ai.happyrobot.carriersales.negotiation.model.OfferResult;
+import ai.happyrobot.carriersales.session.Negotiation.Round;
+import ai.happyrobot.carriersales.session.Negotiation;
+import ai.happyrobot.carriersales.session.Session;
+import ai.happyrobot.carriersales.session.SessionState;
+import ai.happyrobot.carriersales.session.SessionStore;
 import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import java.text.NumberFormat;
 import java.util.List;
@@ -50,16 +50,16 @@ public class NegotiationService {
             "That's more than this load can carry, so we'll pass this time. Thanks for calling, and drive safe.",
             "We're too far apart on this one, I'm afraid. Thanks for your time, and good luck out there.");
 
-    private final CallSessionStore sessions;
+    private final SessionStore sessions;
     private final LoadService loads;
     private final Random random;
 
     @Autowired
-    public NegotiationService(CallSessionStore sessions, LoadService loads) {
+    public NegotiationService(SessionStore sessions, LoadService loads) {
         this(sessions, loads, new Random());
     }
 
-    NegotiationService(CallSessionStore sessions, LoadService loads, Random random) {
+    NegotiationService(SessionStore sessions, LoadService loads, Random random) {
         this.sessions = sessions;
         this.loads = loads;
         this.random = random;
@@ -69,11 +69,11 @@ public class NegotiationService {
         if (callId == null || callId.isBlank()) {
             return OfferResult.problem("MISSING_CALL_ID", "I can't take offers right now.", 0);
         }
-        Optional<CallSession> found = sessions.find(callId);
+        Optional<Session> found = sessions.find(callId);
         if (found.isEmpty() || !found.get().state().passedOtp()) {
             return OfferResult.problem("OTP_NOT_VERIFIED", "I need to verify your identity before we talk rates.", 0);
         }
-        CallSession session = found.get();
+        Session session = found.get();
         synchronized (session) {
             Negotiation negotiation = session.negotiation();
             int roundsUsed = negotiation == null ? 0 : negotiation.roundsUsed();
@@ -82,11 +82,11 @@ public class NegotiationService {
                     && !McNumber.clean(requestedMc).map(session.mcNumber()::equals).orElse(false)) {
                 return OfferResult.problem("MC_MISMATCH", "This call is verified for a different MC number.", roundsUsed);
             }
-            if (session.state() == CallState.AGREED) {
+            if (session.state() == SessionState.AGREED) {
                 return OfferResult.problem("NEGOTIATION_CLOSED", "We already agreed " + money(negotiation.agreedRate())
                         + " on " + negotiation.loadId() + ".", roundsUsed);
             }
-            if (session.state() == CallState.NEGOTIATION_FAILED) {
+            if (session.state() == SessionState.NEGOTIATION_FAILED) {
                 return OfferResult.problem("NEGOTIATION_CLOSED",
                         "We couldn't agree on a rate on this call, so I can't take another offer.", roundsUsed);
             }
@@ -104,7 +104,7 @@ public class NegotiationService {
                 negotiation = new Negotiation(load.loadId(), load.rate(), load.maxBuy(),
                         NegotiationRules.ceilings(load.rate(), load.maxBuy(), random));
                 session.negotiation(negotiation);
-                session.state(CallState.NEGOTIATING);
+                session.state(SessionState.NEGOTIATING);
             } else if (!sameLoad(loadId, negotiation.loadId())) {
                 return OfferResult.problem("LOAD_MISMATCH", "We're working on " + negotiation.loadId()
                         + " right now. Let's settle that one first.", roundsUsed);
@@ -116,9 +116,9 @@ public class NegotiationService {
             String kind = decision.kind().name().toLowerCase(Locale.ROOT);
             negotiation.record(new Round(round, ask.get(), kind, decision.rate()));
             if (decision.kind() == Kind.ACCEPT) {
-                session.state(CallState.AGREED);
+                session.state(SessionState.AGREED);
             } else if (decision.kind() == Kind.REJECT) {
-                session.state(CallState.NEGOTIATION_FAILED);
+                session.state(SessionState.NEGOTIATION_FAILED);
             }
             log.info("Negotiation call {} load {} round {}: ask {} -> {} {}", callId, negotiation.loadId(), round,
                     ask.get(), kind, decision.rate());

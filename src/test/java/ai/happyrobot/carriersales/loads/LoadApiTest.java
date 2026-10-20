@@ -8,13 +8,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import ai.happyrobot.carriersales.call.CallSessionStore;
-import ai.happyrobot.carriersales.call.CallState;
+import ai.happyrobot.carriersales.session.SessionState;
+import ai.happyrobot.carriersales.session.SessionStore;
 import ai.happyrobot.carriersales.tms.TmsClient;
 import ai.happyrobot.carriersales.tms.exception.FaultKind;
 import ai.happyrobot.carriersales.tms.exception.TmsErrorException;
 import ai.happyrobot.carriersales.tms.exception.TmsFaultException;
-import ai.happyrobot.carriersales.tms.model.EquipmentType;
 import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,7 +57,7 @@ class LoadApiTest {
     private ObjectMapper json;
 
     @Autowired
-    private CallSessionStore sessions;
+    private SessionStore sessions;
 
     @MockitoBean
     private TmsClient tms;
@@ -69,7 +68,7 @@ class LoadApiTest {
     @BeforeEach
     void verifiedCall() {
         verifiedCallId = "run-" + UUID.randomUUID();
-        sessions.getOrCreate(verifiedCallId).state(CallState.OTP_VERIFIED);
+        sessions.getOrCreate(verifiedCallId).state(SessionState.OTP_VERIFIED);
     }
 
     // --- the compliance gate ---
@@ -77,7 +76,7 @@ class LoadApiTest {
     @Test
     void searchIsRefusedBeforeOtpWithTheSameFields() throws Exception {
         String notYet = "run-" + UUID.randomUUID();
-        sessions.getOrCreate(notYet).state(CallState.FMCSA_VERIFIED);
+        sessions.getOrCreate(notYet).state(SessionState.FMCSA_VERIFIED);
 
         for (String callId : new String[] {notYet, "never-seen", ""}) {
             JsonNode body = callAs(callId, get("/api/loads/search").param("destination_state", "TX"));
@@ -102,7 +101,7 @@ class LoadApiTest {
     @Test
     void lockedCallStaysRefused() throws Exception {
         String locked = "run-" + UUID.randomUUID();
-        sessions.getOrCreate(locked).state(CallState.OTP_LOCKED);
+        sessions.getOrCreate(locked).state(SessionState.OTP_LOCKED);
 
         assertThat(callAs(locked, get("/api/loads/LD00979")).get("error").asText()).isEqualTo("OTP_NOT_VERIFIED");
     }
@@ -159,7 +158,7 @@ class LoadApiTest {
         assertFields(body, SEARCH_FIELDS);
         assertThat(body.get("found").asBoolean()).isFalse();
         assertThat(body.get("loads")).isEmpty();
-        assertThat(body.get("message").asText()).isEqualTo("No loads found for that lane.");
+        assertThat(body.get("message").asText()).isEqualTo("Nothing open on that lane right now.");
     }
 
     @Test
@@ -201,13 +200,12 @@ class LoadApiTest {
     }
 
     @Test
-    void unknownEquipmentIsA200InvalidRequest() throws Exception {
-        JsonNode body = call(get("/api/loads/search").param("equipment", "tanker"));
+    void unknownEquipmentWithoutALaneAsksForTheLane() throws Exception {
+        JsonNode body = call(get("/api/loads/search").param("equipment", "lowboy"));
 
         assertFields(body, SEARCH_FIELDS);
         assertThat(body.get("error").asText()).isEqualTo("INVALID_REQUEST");
-        assertThat(body.get("message").asText())
-                .isEqualTo("I didn't catch the equipment type. Is it dry van, reefer, flatbed or power only?");
+        assertThat(body.get("message").asText()).isEqualTo("I don't have lowboy loads listed. Which lane are you running?");
     }
 
     @Test
@@ -241,7 +239,7 @@ class LoadApiTest {
     private static TmsLoad futureLoad() {
         LocalDateTime pickup = LocalDateTime.now(LoadFormatter.BROKERAGE_TIME).plusDays(3);
         return new TmsLoad("LD00979", "Houston", "TX", "77001", "Dallas", "TX", "75201",
-                pickup, pickup.plusHours(6), EquipmentType.DRY_VAN, 1850, 239, "OPEN",
+                pickup, pickup.plusHours(6), "DRY_VAN", 1850, 239, "OPEN",
                 7290, "Machinery", 23, "45ft x 8ft x 9ft", "", SECRET_MAX_BUY);
     }
 }

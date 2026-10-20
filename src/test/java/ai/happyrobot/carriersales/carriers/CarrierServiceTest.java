@@ -7,13 +7,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import ai.happyrobot.carriersales.call.CallSession;
-import ai.happyrobot.carriersales.call.CallSessionStore;
-import ai.happyrobot.carriersales.call.CallState;
 import ai.happyrobot.carriersales.carriers.model.VerifyResult;
 import ai.happyrobot.carriersales.fmcsa.FmcsaClient;
 import ai.happyrobot.carriersales.fmcsa.exception.FmcsaUnavailableException;
 import ai.happyrobot.carriersales.fmcsa.model.FmcsaCarrier;
+import ai.happyrobot.carriersales.session.Session;
+import ai.happyrobot.carriersales.session.SessionState;
+import ai.happyrobot.carriersales.session.SessionStore;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -28,7 +28,7 @@ class CarrierServiceTest {
             "Y", "A", "N", "A", null, "BENTON HARBOR", "MI", 2, 2);
 
     private final FmcsaClient fmcsa = mock(FmcsaClient.class);
-    private final CallSessionStore sessions = new CallSessionStore();
+    private final SessionStore sessions = new SessionStore();
     private final CarrierService service = new CarrierService(fmcsa, sessions);
 
     @Test
@@ -56,8 +56,8 @@ class CarrierServiceTest {
 
         service.verify("MC 133655", "run-1");
 
-        CallSession session = sessions.find("run-1").orElseThrow();
-        assertThat(session.state()).isEqualTo(CallState.FMCSA_VERIFIED);
+        Session session = sessions.find("run-1").orElseThrow();
+        assertThat(session.state()).isEqualTo(SessionState.FMCSA_VERIFIED);
         assertThat(session.mcNumber()).isEqualTo("133655");
         assertThat(session.carrierName()).isEqualTo("Schneider National Carriers Inc");
     }
@@ -88,12 +88,12 @@ class CarrierServiceTest {
     void verifyingTheSameMcAgainKeepsProgress() {
         when(fmcsa.findByMcNumber("133655")).thenReturn(Optional.of(SCHNEIDER));
         service.verify("133655", "run-1");
-        sessions.find("run-1").orElseThrow().state(CallState.OTP_VERIFIED);
+        sessions.find("run-1").orElseThrow().state(SessionState.OTP_VERIFIED);
 
         VerifyResult again = service.verify("MC 133655", "run-1");
 
         assertThat(again.eligible()).isTrue();
-        assertThat(sessions.find("run-1").orElseThrow().state()).isEqualTo(CallState.OTP_VERIFIED);
+        assertThat(sessions.find("run-1").orElseThrow().state()).isEqualTo(SessionState.OTP_VERIFIED);
     }
 
     @Test

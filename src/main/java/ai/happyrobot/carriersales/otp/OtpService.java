@@ -1,14 +1,14 @@
 package ai.happyrobot.carriersales.otp;
 
-import ai.happyrobot.carriersales.call.CallSession;
-import ai.happyrobot.carriersales.call.CallSessionStore;
-import ai.happyrobot.carriersales.call.CallState;
 import ai.happyrobot.carriersales.carriers.CarrierDirectory;
 import ai.happyrobot.carriersales.carriers.McNumber;
 import ai.happyrobot.carriersales.otp.exception.OtpDeliveryException;
 import ai.happyrobot.carriersales.otp.model.OtpDelivery;
 import ai.happyrobot.carriersales.otp.model.OtpSendResult;
 import ai.happyrobot.carriersales.otp.model.OtpVerifyResult;
+import ai.happyrobot.carriersales.session.Session;
+import ai.happyrobot.carriersales.session.SessionState;
+import ai.happyrobot.carriersales.session.SessionStore;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
@@ -41,7 +41,7 @@ public class OtpService {
             Map.entry("two", "2"), Map.entry("three", "3"), Map.entry("four", "4"), Map.entry("five", "5"),
             Map.entry("six", "6"), Map.entry("seven", "7"), Map.entry("eight", "8"), Map.entry("nine", "9"));
 
-    private final CallSessionStore sessions;
+    private final SessionStore sessions;
     private final CarrierDirectory directory;
     private final OtpSender sender;
     private final Clock clock;
@@ -50,11 +50,11 @@ public class OtpService {
     private final byte[] hmacKey = new byte[32];
 
     @Autowired
-    public OtpService(CallSessionStore sessions, CarrierDirectory directory, OtpSender sender) {
+    public OtpService(SessionStore sessions, CarrierDirectory directory, OtpSender sender) {
         this(sessions, directory, sender, Clock.systemUTC());
     }
 
-    OtpService(CallSessionStore sessions, CarrierDirectory directory, OtpSender sender, Clock clock) {
+    OtpService(SessionStore sessions, CarrierDirectory directory, OtpSender sender, Clock clock) {
         this.sessions = sessions;
         this.directory = directory;
         this.sender = sender;
@@ -66,21 +66,21 @@ public class OtpService {
         if (isBlank(callId)) {
             return OtpSendResult.notSent("MISSING_CALL_ID", "I can't send a code right now.", 0);
         }
-        Optional<CallSession> found = sessions.find(callId);
-        if (found.isEmpty() || found.get().state() == CallState.NEW) {
+        Optional<Session> found = sessions.find(callId);
+        if (found.isEmpty() || found.get().state() == SessionState.NEW) {
             return OtpSendResult.notSent("MC_NOT_VERIFIED", "Let's verify your MC number first.", MAX_SENDS);
         }
-        CallSession session = found.get();
+        Session session = found.get();
         synchronized (session) {
             int resendsLeft = Math.max(0, MAX_SENDS - session.otpSends());
             if (isOtherMc(requestedMc, session)) {
                 return OtpSendResult.notSent("MC_MISMATCH",
                         "This call is verified for a different MC number.", resendsLeft);
             }
-            if (session.state() == CallState.OTP_VERIFIED) {
+            if (session.state() == SessionState.OTP_VERIFIED) {
                 return OtpSendResult.notSent("ALREADY_VERIFIED", "You're already verified.", resendsLeft);
             }
-            if (session.state() == CallState.OTP_LOCKED) {
+            if (session.state() == SessionState.OTP_LOCKED) {
                 return OtpSendResult.notSent("LOCKED", lockedMessage(), 0);
             }
             if (session.otpSends() >= MAX_SENDS) {
@@ -107,7 +107,7 @@ public class OtpService {
             session.otpExpiresAt(clock.instant().plus(TTL));
             session.otpAttempts(0);
             session.otpSends(session.otpSends() + 1);
-            session.state(CallState.OTP_SENT);
+            session.state(SessionState.OTP_SENT);
             String masked = mask(email.get());
             return new OtpSendResult("", "I just sent a 6-digit code to " + masked + ".", true, "email", masked,
                     (int) TTL.toSeconds(), MAX_SENDS - session.otpSends());
@@ -118,11 +118,11 @@ public class OtpService {
         if (isBlank(callId)) {
             return new OtpVerifyResult("MISSING_CALL_ID", "I can't check the code right now.", false, 0, false);
         }
-        Optional<CallSession> found = sessions.find(callId);
+        Optional<Session> found = sessions.find(callId);
         if (found.isEmpty()) {
             return noActiveOtp();
         }
-        CallSession session = found.get();
+        Session session = found.get();
         synchronized (session) {
             int attemptsLeft = MAX_ATTEMPTS - session.otpAttempts();
             switch (session.state()) {
@@ -153,13 +153,13 @@ public class OtpService {
                     hash(callId, code).getBytes(StandardCharsets.UTF_8),
                     session.otpHash().getBytes(StandardCharsets.UTF_8));
             if (match) {
-                session.state(CallState.OTP_VERIFIED);
+                session.state(SessionState.OTP_VERIFIED);
                 session.otpHash(""); // used up
                 return new OtpVerifyResult("", "Thanks, you're verified.", true, attemptsLeft, false);
             }
             session.otpAttempts(session.otpAttempts() + 1);
             if (session.otpAttempts() >= MAX_ATTEMPTS) {
-                session.state(CallState.OTP_LOCKED);
+                session.state(SessionState.OTP_LOCKED);
                 session.otpHash("");
                 log.info("OTP locked for call {} after {} wrong codes", callId, MAX_ATTEMPTS);
                 return new OtpVerifyResult("LOCKED", lockedMessage(), false, 0, true);
@@ -202,7 +202,7 @@ public class OtpService {
         }
     }
 
-    private static boolean isOtherMc(String requestedMc, CallSession session) {
+    private static boolean isOtherMc(String requestedMc, Session session) {
         return !isBlank(requestedMc)
                 && !McNumber.clean(requestedMc).map(session.mcNumber()::equals).orElse(false);
     }

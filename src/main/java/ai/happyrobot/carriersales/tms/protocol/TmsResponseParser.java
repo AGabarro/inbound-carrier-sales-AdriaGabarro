@@ -4,6 +4,7 @@ import ai.happyrobot.carriersales.tms.exception.FaultKind;
 import ai.happyrobot.carriersales.tms.exception.TmsErrorException;
 import ai.happyrobot.carriersales.tms.exception.TmsFaultException;
 import ai.happyrobot.carriersales.tms.model.EquipmentType;
+import ai.happyrobot.carriersales.tms.model.TmsBooking;
 import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -36,10 +37,14 @@ public final class TmsResponseParser {
             "COMMODITY", 30, "PIECES", 6, "MILES", 6, "DIMS", 30,
             "NOTES", 120, "STATUS", 8, "MAX_BUY", 8);
 
+    private static final Map<String, Integer> BOOKING_LAYOUT = layout(
+            "LOAD_ID", 12, "BOOKING_REF", 16, "STATUS", 8, "TIMESTAMP", 14);
+
     private static final Pattern PRINTABLE_ASCII = Pattern.compile("[\\x20-\\x7E]*");
     private static final Pattern ERROR_CODE = Pattern.compile("[A-Z_]+");
     private static final Pattern DIGITS = Pattern.compile("\\d+");
     private static final Pattern STATE = Pattern.compile("[A-Z]{2}");
+    private static final Pattern EQUIPMENT_CODE = Pattern.compile("[A-Z][A-Z_]*[A-Z]");
     private static final Pattern ZIP = Pattern.compile("\\d{5}");
     private static final DateTimeFormatter TMS_DATE_TIME =
             DateTimeFormatter.ofPattern("uuuuMMddHHmmss").withResolverStyle(ResolverStyle.STRICT);
@@ -51,9 +56,27 @@ public final class TmsResponseParser {
         Map<String, Integer> layout = switch (command) {
             case LOAD_QUERY -> SUMMARY_LAYOUT;
             case LOAD_GET -> DETAIL_LAYOUT;
-            case LOAD_BOOK -> throw new UnsupportedOperationException("LOAD_BOOK responses are not parsed yet");
+            case LOAD_BOOK -> throw new IllegalArgumentException("use parseBooking for LOAD_BOOK");
         };
+        List<TmsLoad> loads = new ArrayList<>();
+        for (String record : records(raw)) {
+            loads.add(toLoad(fields(record, layout)));
+        }
+        return loads;
+    }
 
+    public static TmsBooking parseBooking(String raw) {
+        List<String> records = records(raw);
+        if (records.size() != 1) {
+            throw malformed("booking reply has " + records.size() + " records, expected 1");
+        }
+        Map<String, String> f = fields(records.getFirst(), BOOKING_LAYOUT);
+        return new TmsBooking(required(f, "LOAD_ID"), required(f, "BOOKING_REF"), required(f, "STATUS"),
+                dateTime(f, "TIMESTAMP"));
+    }
+
+    // Record lines of a complete reply; throws TmsErrorException for an ERR line, TmsFaultException otherwise.
+    private static List<String> records(String raw) {
         if (raw == null || raw.isEmpty()) {
             throw new TmsFaultException(FaultKind.EMPTY, "no bytes received");
         }
@@ -66,7 +89,6 @@ public final class TmsResponseParser {
                 throw malformed("control or non-ASCII character inside a line");
             }
         }
-
         if (lines.getFirst().startsWith("ERR|")) {
             if (lines.size() > 1) {
                 throw malformed("ERR line followed by more lines");
@@ -76,12 +98,7 @@ public final class TmsResponseParser {
         if (!lines.getLast().equals(END)) {
             throw new TmsFaultException(FaultKind.PARTIAL, "no END terminator");
         }
-
-        List<TmsLoad> loads = new ArrayList<>();
-        for (String record : lines.subList(0, lines.size() - 1)) {
-            loads.add(toLoad(fields(record, layout)));
-        }
-        return loads;
+        return lines.subList(0, lines.size() - 1);
     }
 
     private static RuntimeException parseError(String line) {
@@ -171,12 +188,9 @@ public final class TmsResponseParser {
         }
     }
 
-    private static EquipmentType equipment(Map<String, String> f) {
-        try {
-            return EquipmentType.valueOf(f.get("EQTYPE"));
-        } catch (IllegalArgumentException e) {
-            throw malformed("EQTYPE is not a known equipment type");
-        }
+    // Any well-formed code: a new equipment type must not break a whole search.
+    private static String equipment(Map<String, String> f) {
+        return matching(f, "EQTYPE", EQUIPMENT_CODE);
     }
 
     // Messages name the field and the problem, never the value (it could be MAX_BUY).

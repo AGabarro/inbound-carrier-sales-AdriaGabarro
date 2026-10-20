@@ -2,14 +2,14 @@ package ai.happyrobot.carriersales.otp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import ai.happyrobot.carriersales.call.CallSession;
-import ai.happyrobot.carriersales.call.CallSessionStore;
-import ai.happyrobot.carriersales.call.CallState;
 import ai.happyrobot.carriersales.carriers.CarrierDirectory;
 import ai.happyrobot.carriersales.otp.exception.OtpDeliveryException;
 import ai.happyrobot.carriersales.otp.model.OtpDelivery;
 import ai.happyrobot.carriersales.otp.model.OtpSendResult;
 import ai.happyrobot.carriersales.otp.model.OtpVerifyResult;
+import ai.happyrobot.carriersales.session.Session;
+import ai.happyrobot.carriersales.session.SessionState;
+import ai.happyrobot.carriersales.session.SessionStore;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -29,7 +29,7 @@ class OtpServiceTest {
     private static final String CALL = "run-1";
 
     private final MovableClock clock = new MovableClock(Instant.parse("2026-10-19T12:00:00Z"));
-    private final CallSessionStore sessions = new CallSessionStore();
+    private final SessionStore sessions = new SessionStore();
     private final FakeSender sender = new FakeSender();
     private final OtpService otp = new OtpService(sessions,
             new CarrierDirectory("133655:jane@schneider.com"), sender, clock);
@@ -54,7 +54,7 @@ class OtpServiceTest {
         assertThat(sender.last().email()).isEqualTo("jane@schneider.com");
         assertThat(sender.last().code()).matches("\\d{6}");
         assertThat(result.toString()).doesNotContain(sender.last().code());
-        assertThat(sessions.find(CALL).orElseThrow().state()).isEqualTo(CallState.OTP_SENT);
+        assertThat(sessions.find(CALL).orElseThrow().state()).isEqualTo(SessionState.OTP_SENT);
     }
 
     @Test
@@ -112,8 +112,8 @@ class OtpServiceTest {
 
         assertThat(result.error()).isEqualTo("DELIVERY_FAILED");
         assertThat(result.sent()).isFalse();
-        CallSession session = sessions.find(CALL).orElseThrow();
-        assertThat(session.state()).isEqualTo(CallState.FMCSA_VERIFIED);
+        Session session = sessions.find(CALL).orElseThrow();
+        assertThat(session.state()).isEqualTo(SessionState.FMCSA_VERIFIED);
         assertThat(session.otpSends()).isZero();
     }
 
@@ -127,7 +127,7 @@ class OtpServiceTest {
 
         assertThat(result.error()).isEmpty();
         assertThat(result.verified()).isTrue();
-        assertThat(sessions.find(CALL).orElseThrow().state()).isEqualTo(CallState.OTP_VERIFIED);
+        assertThat(sessions.find(CALL).orElseThrow().state()).isEqualTo(SessionState.OTP_VERIFIED);
         assertThat(sessions.find(CALL).orElseThrow().otpHash()).isEmpty();
     }
 
@@ -229,8 +229,8 @@ class OtpServiceTest {
     }
 
     private void verifiedCarrier(String callId, String mc) {
-        CallSession session = sessions.getOrCreate(callId);
-        session.state(CallState.FMCSA_VERIFIED);
+        Session session = sessions.getOrCreate(callId);
+        session.state(SessionState.FMCSA_VERIFIED);
         session.mcNumber(mc);
         session.carrierName("Test Carrier");
     }

@@ -12,6 +12,7 @@ import ai.happyrobot.carriersales.config.TmsProperties;
 import ai.happyrobot.carriersales.tms.exception.FaultKind;
 import ai.happyrobot.carriersales.tms.exception.TmsErrorException;
 import ai.happyrobot.carriersales.tms.exception.TmsFaultException;
+import ai.happyrobot.carriersales.tms.model.TmsBooking;
 import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import ai.happyrobot.carriersales.tms.protocol.TmsRequest;
 import java.io.IOException;
@@ -139,12 +140,42 @@ class TmsClientTest {
     }
 
     @Test
-    void loadBookIsNotSent() throws IOException {
+    void bookingNeverGoesThroughTheRetryLoop() throws IOException {
         try (FakeTmsServer tms = new FakeTmsServer(reply(CLEAN))) {
             assertThatThrownBy(() -> clientFor(tms.port()).send(TmsRequest.loadBook("LD00992", "123456", 11000)))
-                    .isInstanceOf(UnsupportedOperationException.class);
+                    .isInstanceOf(IllegalArgumentException.class);
 
             assertThat(tms.requestLines()).isEmpty();
+        }
+    }
+
+    @Test
+    void bookSendsOneRequestAndReadsTheReference() throws IOException {
+        try (FakeTmsServer tms = new FakeTmsServer(reply(fixture("book-success.txt")))) {
+            TmsBooking booking = clientFor(tms.port()).book("LD00962", "133655", 3833);
+
+            assertThat(booking.bookingRef()).isEqualTo("GFZKYZRT3K4JOEAE");
+            assertThat(booking.status()).isEqualTo("PENDING");
+            assertThat(tms.requestLines())
+                    .containsExactly("CMD:LOAD_BOOK|AUTH:" + TOKEN + "|LOAD_ID:LD00962|MC_NUM:133655|AGREED_RATE:3833");
+        }
+    }
+
+    @Test
+    void bookFaultIsNotRetried() throws IOException {
+        try (FakeTmsServer tms = new FakeTmsServer(hang(), reply(fixture("book-success.txt")))) {
+            assertThatThrownBy(() -> clientFor(tms.port()).book("LD00962", "133655", 3833))
+                    .isInstanceOfSatisfying(TmsFaultException.class, e -> assertThat(e.kind()).isEqualTo(FaultKind.TIMEOUT));
+
+            assertThat(tms.requestLines()).hasSize(1);
+        }
+    }
+
+    @Test
+    void alreadyBookedIsATmsError() throws IOException {
+        try (FakeTmsServer tms = new FakeTmsServer(reply(fixture("book-already-booked.err.txt")))) {
+            assertThatThrownBy(() -> clientFor(tms.port()).book("LD00962", "133655", 3833))
+                    .isInstanceOfSatisfying(TmsErrorException.class, e -> assertThat(e.code()).isEqualTo("ALREADY_BOOKED"));
         }
     }
 

@@ -17,23 +17,23 @@ class LoadFormatterTest {
             "dry van, DRY_VAN", "Dry-Van, DRY_VAN", "DRY_VAN, DRY_VAN", "van, DRY_VAN",
             "reefer, REEFER", "Refrigerated, REEFER", "refer, REEFER",
             "flatbed, FLATBED", "flat bed, FLATBED",
-            "power only, POWER_ONLY", "POWER_ONLY, POWER_ONLY"
+            "power only, POWER_ONLY", "POWER_ONLY, POWER_ONLY",
+            "step deck, STEP_DECK", "stepdeck, STEP_DECK", "drop deck, STEP_DECK"
     })
     void understandsSpokenEquipment(String spoken, EquipmentType expected) {
-        assertThat(LoadFormatter.equipment(spoken)).isEqualTo(expected);
+        assertThat(LoadFormatter.equipment(spoken)).contains(expected);
     }
 
     @Test
-    void unknownEquipmentAsksAgain() {
-        assertThatThrownBy(() -> LoadFormatter.equipment("tanker"))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("dry van, reefer, flatbed or power only");
+    void equipmentWeCantFilterOnIsEmpty() {
+        assertThat(LoadFormatter.equipment("lowboy")).isEmpty();
     }
 
     @Test
     void labelsEquipmentForSpeech() {
-        assertThat(LoadFormatter.equipmentLabel(EquipmentType.DRY_VAN)).isEqualTo("Dry Van");
-        assertThat(LoadFormatter.equipmentLabel(EquipmentType.POWER_ONLY)).isEqualTo("Power Only");
+        assertThat(LoadFormatter.equipmentLabel("DRY_VAN")).isEqualTo("Dry Van");
+        assertThat(LoadFormatter.equipmentLabel("STEP_DECK")).isEqualTo("Step Deck");
+        assertThat(LoadFormatter.equipmentLabel("LOWBOY")).isEqualTo("Lowboy"); // a type we don't know yet
     }
 
     @Test

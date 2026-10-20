@@ -1,12 +1,12 @@
 package ai.happyrobot.carriersales.carriers;
 
-import ai.happyrobot.carriersales.call.CallSession;
-import ai.happyrobot.carriersales.call.CallSessionStore;
-import ai.happyrobot.carriersales.call.CallState;
 import ai.happyrobot.carriersales.carriers.model.VerifyResult;
 import ai.happyrobot.carriersales.fmcsa.FmcsaClient;
 import ai.happyrobot.carriersales.fmcsa.exception.FmcsaUnavailableException;
 import ai.happyrobot.carriersales.fmcsa.model.FmcsaCarrier;
+import ai.happyrobot.carriersales.session.Session;
+import ai.happyrobot.carriersales.session.SessionState;
+import ai.happyrobot.carriersales.session.SessionStore;
 import ai.happyrobot.carriersales.web.exception.BadRequestException;
 import java.util.Arrays;
 import java.util.Locale;
@@ -26,9 +26,9 @@ public class CarrierService {
     static final String MC_MISMATCH = "MC_MISMATCH";
 
     private final FmcsaClient fmcsa;
-    private final CallSessionStore sessions;
+    private final SessionStore sessions;
 
-    public CarrierService(FmcsaClient fmcsa, CallSessionStore sessions) {
+    public CarrierService(FmcsaClient fmcsa, SessionStore sessions) {
         this.fmcsa = fmcsa;
         this.sessions = sessions;
     }
@@ -42,8 +42,8 @@ public class CarrierService {
         }
 
         // A verified call can't switch to another MC.
-        Optional<CallSession> session = Optional.ofNullable(callId).filter(id -> !id.isBlank()).flatMap(sessions::find);
-        if (session.isPresent() && session.get().state() != CallState.NEW && !mc.equals(session.get().mcNumber())) {
+        Optional<Session> session = Optional.ofNullable(callId).filter(id -> !id.isBlank()).flatMap(sessions::find);
+        if (session.isPresent() && session.get().state() != SessionState.NEW && !mc.equals(session.get().mcNumber())) {
             return VerifyResult.notEligible(MC_MISMATCH, "",
                     "This call is already verified for a different MC number, so I can't switch carriers now.", mc);
         }
@@ -82,10 +82,10 @@ public class CarrierService {
         if (callId == null || callId.isBlank()) {
             return; // nothing to remember; the load gate will still refuse this call
         }
-        CallSession session = sessions.getOrCreate(callId);
+        Session session = sessions.getOrCreate(callId);
         synchronized (session) {
-            if (session.state() == CallState.NEW) {
-                session.state(CallState.FMCSA_VERIFIED);
+            if (session.state() == SessionState.NEW) {
+                session.state(SessionState.FMCSA_VERIFIED);
                 session.mcNumber(mc);
                 session.carrierName(carrierName);
             }

@@ -1,13 +1,15 @@
-package ai.happyrobot.carriersales.call;
+package ai.happyrobot.carriersales.session;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 // What the backend remembers about one call. Services synchronize on it; only the code's hash is kept.
-public class CallSession {
+public class Session {
 
     private final String callId;
     private final Instant createdAt;
-    private CallState state = CallState.NEW;
+    private SessionState state = SessionState.NEW;
     private String mcNumber = "";
     private String carrierName = "";
     private String otpHash = "";
@@ -15,8 +17,10 @@ public class CallSession {
     private int otpAttempts;
     private int otpSends;
     private Negotiation negotiation;
+    private final List<Negotiation> previousNegotiations = new ArrayList<>();
+    private String bookingRef = "";
 
-    public CallSession(String callId, Instant createdAt) {
+    public Session(String callId, Instant createdAt) {
         this.callId = callId;
         this.createdAt = createdAt;
     }
@@ -29,11 +33,11 @@ public class CallSession {
         return createdAt;
     }
 
-    public CallState state() {
+    public SessionState state() {
         return state;
     }
 
-    public void state(CallState state) {
+    public void state(SessionState state) {
         this.state = state;
     }
 
@@ -93,8 +97,29 @@ public class CallSession {
         this.negotiation = negotiation;
     }
 
+    // The agreed load fell through (taken or refused): keep the history, let the carrier negotiate another one.
+    public void releaseNegotiation() {
+        if (negotiation != null) {
+            previousNegotiations.add(negotiation);
+        }
+        negotiation = null;
+        state = SessionState.OTP_VERIFIED;
+    }
+
+    public List<Negotiation> previousNegotiations() {
+        return List.copyOf(previousNegotiations);
+    }
+
+    public String bookingRef() {
+        return bookingRef;
+    }
+
+    public void bookingRef(String bookingRef) {
+        this.bookingRef = bookingRef;
+    }
+
     @Override
     public String toString() {
-        return "CallSession[callId=" + callId + ", state=" + state + ", mc=" + mcNumber + "]";
+        return "Session[callId=" + callId + ", state=" + state + ", mc=" + mcNumber + "]";
     }
 }

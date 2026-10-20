@@ -5,6 +5,7 @@ import static java.nio.charset.StandardCharsets.US_ASCII;
 import ai.happyrobot.carriersales.config.TmsProperties;
 import ai.happyrobot.carriersales.tms.exception.FaultKind;
 import ai.happyrobot.carriersales.tms.exception.TmsFaultException;
+import ai.happyrobot.carriersales.tms.model.TmsBooking;
 import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import ai.happyrobot.carriersales.tms.protocol.TmsCommand;
 import ai.happyrobot.carriersales.tms.protocol.TmsRequest;
@@ -41,8 +42,7 @@ public class TmsClient {
 
     public List<TmsLoad> send(TmsRequest request) {
         if (request.command() == TmsCommand.LOAD_BOOK) {
-            // Retrying a booking blindly could double-book.
-            throw new UnsupportedOperationException("To be implemented");
+            throw new IllegalArgumentException("use book(): a booking must never go through the retry loop");
         }
         log.debug("TMS request {}", TmsRequestEncoder.redacted(request));
 
@@ -58,6 +58,13 @@ public class TmsClient {
                 pause(e);
             }
         }
+    }
+
+    // Exactly one attempt: retrying a booking blindly could double-book. The caller verifies after a fault.
+    public TmsBooking book(String loadId, String mcNumber, int agreedRate) {
+        TmsRequest request = TmsRequest.loadBook(loadId, mcNumber, agreedRate);
+        log.info("TMS LOAD_BOOK {} for MC {} at {}", loadId, mcNumber, agreedRate);
+        return TmsResponseParser.parseBooking(exchange(request));
     }
 
     private String exchange(TmsRequest request) {

@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import ai.happyrobot.carriersales.tms.exception.FaultKind;
 import ai.happyrobot.carriersales.tms.exception.TmsErrorException;
 import ai.happyrobot.carriersales.tms.exception.TmsFaultException;
-import ai.happyrobot.carriersales.tms.model.EquipmentType;
+import ai.happyrobot.carriersales.tms.model.TmsBooking;
 import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -30,7 +30,7 @@ class TmsResponseParserTest {
         assertThat(first.originCity()).isEqualTo("Honolulu");
         assertThat(first.destinationState()).isEqualTo("TX");
         assertThat(first.pickupAt()).isEqualTo(LocalDateTime.of(2026, 10, 17, 7, 27, 0));
-        assertThat(first.equipmentType()).isEqualTo(EquipmentType.REEFER);
+        assertThat(first.equipmentType()).isEqualTo("REEFER");
         assertThat(first.rate()).isEqualTo(11147);
         assertThat(first.maxBuy()).isNull();
     }
@@ -137,6 +137,66 @@ class TmsResponseParserTest {
         String corrupted = fixture("query-dest-tx.txt").replaceFirst("\r\n", "\n");
 
         assertFault(LOAD_QUERY, corrupted, FaultKind.MALFORMED);
+    }
+
+    // --- equipment types ---
+
+    @Test
+    void equipmentTypesWeDontKnowYetDoNotBreakASearch() {
+        // 26% of real loads are STEP_DECK, which the brief never mentions; LOWBOY stands for a future type.
+        String mixed = fixture("query-dest-tx.txt")
+                .replaceFirst("EQTYPE:REEFER    ", "EQTYPE:STEP_DECK ")
+                .replaceFirst("EQTYPE:DRY_VAN   ", "EQTYPE:LOWBOY    ");
+
+        List<TmsLoad> loads = TmsResponseParser.parse(LOAD_QUERY, mixed);
+
+        assertThat(loads).hasSize(5);
+        assertThat(loads).extracting(TmsLoad::equipmentType).contains("STEP_DECK", "LOWBOY");
+    }
+
+    @Test
+    void malformedEquipmentIsStillAFault() {
+        String corrupted = fixture("get-LD00992.txt").replace("EQTYPE:REEFER    ", "EQTYPE:reefer    ");
+
+        assertFault(LOAD_GET, corrupted, FaultKind.MALFORMED);
+    }
+
+    // --- booking replies (real, from the approved test on LD00962) ---
+
+    @Test
+    void parsesABooking() {
+        TmsBooking booking = TmsResponseParser.parseBooking(fixture("book-success.txt"));
+
+        assertThat(booking.loadId()).isEqualTo("LD00962");
+        assertThat(booking.bookingRef()).isEqualTo("GFZKYZRT3K4JOEAE");
+        assertThat(booking.status()).isEqualTo("PENDING");
+        assertThat(booking.bookedAt()).isEqualTo(LocalDateTime.of(2026, 10, 20, 3, 37, 45));
+    }
+
+    @Test
+    void alreadyBookedIsAnError() {
+        TmsErrorException e = catchThrowableOfType(TmsErrorException.class,
+                () -> TmsResponseParser.parseBooking(fixture("book-already-booked.err.txt")));
+
+        assertThat(e.code()).isEqualTo("ALREADY_BOOKED");
+    }
+
+    @Test
+    void bookingRepliesAreCheckedStrictly() {
+        String clean = fixture("book-success.txt");
+
+        assertThatThrownBy(() -> TmsResponseParser.parseBooking(clean.replace("STATUS:PENDING ", "STATUS:PENDING  ")))
+                .isInstanceOfSatisfying(TmsFaultException.class, e -> assertThat(e.kind()).isEqualTo(FaultKind.MALFORMED));
+        assertThatThrownBy(() -> TmsResponseParser.parseBooking("END\r\n"))
+                .isInstanceOfSatisfying(TmsFaultException.class, e -> assertThat(e.kind()).isEqualTo(FaultKind.MALFORMED));
+        assertThatThrownBy(() -> TmsResponseParser.parseBooking(clean.replace("END\r\n", "")))
+                .isInstanceOfSatisfying(TmsFaultException.class, e -> assertThat(e.kind()).isEqualTo(FaultKind.PARTIAL));
+    }
+
+    @Test
+    void bookingIsNotParsedAsLoads() {
+        assertThatThrownBy(() -> TmsResponseParser.parse(TmsCommand.LOAD_BOOK, fixture("book-success.txt")))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     // --- MAX_BUY never leaks ---

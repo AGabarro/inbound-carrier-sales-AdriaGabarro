@@ -65,8 +65,15 @@ public class LoadService {
     public SearchResult search(String originState, String originCity, String destinationState,
                                String destinationCity, String equipment, String pickupDate) {
         try {
+            // Equipment we can't filter on: search the whole lane and say so.
+            boolean unknownEquipment = hasText(equipment) && LoadFormatter.equipment(equipment).isEmpty();
             Map<String, String> filters = filters(originState, originCity, destinationState, destinationCity,
                     equipment, pickupDate);
+            if (filters.isEmpty()) {
+                throw new BadRequestException(unknownEquipment
+                        ? "I don't have " + spokenEquipment(equipment) + " loads listed. Which lane are you running?"
+                        : "Where would you like to pick up or deliver, and what equipment do you run?");
+            }
             LocalDateTime now = LocalDateTime.now(clock);
             List<TmsLoad> candidates = tms.send(TmsRequest.loadQuery(filters)).stream()
                     .filter(load -> isOffered(load, now))
@@ -76,9 +83,13 @@ public class LoadService {
             List<LoadSummary> loads = bookable(candidates, now);
 
             if (loads.isEmpty()) {
-                return new SearchResult("", "No loads found for that lane.", false, List.of());
+                return new SearchResult("", "Nothing open on that lane right now.", false, List.of());
             }
-            String message = loads.size() == 1 ? "I found 1 load." : "I found " + loads.size() + " loads.";
+            String found = loads.size() == 1 ? "I've got 1 load" : "I've got " + loads.size() + " loads";
+            String message = unknownEquipment
+                    ? "I don't have " + spokenEquipment(equipment) + " loads listed, but here's what's moving on that "
+                            + "lane: " + found + ". Each one says the equipment it needs."
+                    : found + " for you.";
             return new SearchResult("", message, true, loads);
         } catch (BadRequestException e) {
             return SearchResult.problem(INVALID_REQUEST, e.getMessage());
@@ -142,12 +153,17 @@ public class LoadService {
         if (hasText(originCity)) filters.put("ORIG_CITY", LoadFormatter.city(originCity));
         if (hasText(destinationState)) filters.put("DEST_STATE", LoadFormatter.state(destinationState));
         if (hasText(destinationCity)) filters.put("DEST_CITY", LoadFormatter.city(destinationCity));
-        if (hasText(equipment)) filters.put("EQTYPE", LoadFormatter.equipment(equipment).name());
-        if (hasText(pickupDate)) filters.put("PICKUP_DATE", LoadFormatter.tmsDate(pickupDate));
-        if (filters.isEmpty()) {
-            throw new BadRequestException("Where would you like to pick up or deliver, and what equipment do you run?");
+        if (hasText(equipment)) {
+            LoadFormatter.equipment(equipment).ifPresent(type -> filters.put("EQTYPE", type.name()));
         }
+        if (hasText(pickupDate)) filters.put("PICKUP_DATE", LoadFormatter.tmsDate(pickupDate));
         return filters;
+    }
+
+    // Echoed back to the carrier, so only plain words.
+    private static String spokenEquipment(String spoken) {
+        String words = spoken.trim().toLowerCase(Locale.ROOT);
+        return words.matches("[a-z][a-z ]{0,20}") ? words : "that equipment";
     }
 
     // Summaries have no delivery time: confirm each candidate with its full record so search and details agree.

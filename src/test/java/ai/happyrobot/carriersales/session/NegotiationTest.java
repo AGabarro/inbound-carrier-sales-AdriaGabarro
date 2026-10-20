@@ -1,8 +1,8 @@
-package ai.happyrobot.carriersales.call;
+package ai.happyrobot.carriersales.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import ai.happyrobot.carriersales.call.Negotiation.Round;
+import ai.happyrobot.carriersales.session.Negotiation.Round;
 import org.junit.jupiter.api.Test;
 
 class NegotiationTest {

@@ -1,0 +1,2 @@
+LOAD_ID:LD00962     |ORIG_CITY:Dallas                        |ORIG_STATE:TX|ORIG_ZIP:75201|DEST_CITY:New York                      |DEST_STATE:NY|DEST_ZIP:10001|PICKUP_DT:20261022064400|DELIVERY_DT:20261022234400|EQTYPE:DRY_VAN   |RATE:3833    |WEIGHT:20313   |COMMODITY:Beverages                     |PIECES:30    |MILES:1371  |DIMS:40ft x 8ft x 9ft              |NOTES:                                                                                                                        |STATUS:PENDING |MAX_BUY:4560    
+END

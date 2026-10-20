@@ -9,7 +9,7 @@ public record TmsLoad(
         String destinationCity, String destinationState, String destinationZip,
         LocalDateTime pickupAt,
         LocalDateTime deliveryAt,
-        EquipmentType equipmentType,
+        String equipmentType,
         int rate,
         int miles,
         String status,
