@@ -31,7 +31,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 /**
- * A whole call as Jessica would make it, over HTTP: loads stay locked until FMCSA and the OTP both pass.
+ * A whole call as the voice agent would make it, over HTTP: loads stay locked until FMCSA and the OTP both pass.
  * Only the outside systems (FMCSA, TMS, OTP delivery) are mocked.
  */
 @SpringBootTest
@@ -90,6 +90,15 @@ class CallFlowTest {
 
         // 5. Another call is not verified by this one.
         assertThat(get("/api/loads/LD00979", "run-flow-2").get("error").asText()).isEqualTo("OTP_NOT_VERIFIED");
+
+        // 6. Negotiation: an outrageous ask gets a counter, then the posted rate is accepted.
+        JsonNode counter = post("/api/negotiations/offer", "{\"load_id\": \"LD00979\", \"counter_rate\": 5000}");
+        assertThat(counter.get("decision").asText()).isEqualTo("counter");
+        assertThat(counter.get("rate").asInt()).isLessThan(2300);
+        JsonNode deal = post("/api/negotiations/offer", "{\"load_id\": \"LD00979\", \"counter_rate\": 1961}");
+        assertThat(deal.get("decision").asText()).isEqualTo("accept");
+        assertThat(deal.get("final").asBoolean()).isTrue();
+        assertThat(counter.toString() + deal).doesNotContain("2300");
     }
 
     private JsonNode search() throws Exception {

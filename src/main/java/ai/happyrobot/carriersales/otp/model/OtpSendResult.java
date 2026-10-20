@@ -1,8 +1,6 @@
 package ai.happyrobot.carriersales.otp.model;
 
-// Always HTTP 200 with every field. Never contains the code, its hash or the full email.
-// error: "" | MISSING_CALL_ID | MC_NOT_VERIFIED | MC_MISMATCH | ALREADY_VERIFIED | LOCKED | RESEND_LIMIT
-//        | NO_CONTACT_ON_FILE | DELIVERY_FAILED
+// Never contains the code, its hash or the full email.
 public record OtpSendResult(
         String error,
         String message,

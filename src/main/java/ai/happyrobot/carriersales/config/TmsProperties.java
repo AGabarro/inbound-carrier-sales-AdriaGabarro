@@ -9,17 +9,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.validation.annotation.Validated;
 
-/**
- * Legacy TMS connection, bound from {@code app.tms.*} in {@code application.yml}.
- * {@code toString()} masks the token so a stray log line can't leak it.
- */
 @Validated
 @ConfigurationProperties(prefix = "app.tms")
 public record TmsProperties(
         @NotBlank String host,
         @NotNull @Positive @Max(65535) Integer port,
         @NotBlank String token,
-        // Budget for one attempt (connect + all reads). Healthy replies take ~0.6s, slow ones 2-4s.
+        // Per attempt: connect plus all reads.
         @NotNull @DefaultValue("4s") Duration attemptTimeout) {
 
     @Override

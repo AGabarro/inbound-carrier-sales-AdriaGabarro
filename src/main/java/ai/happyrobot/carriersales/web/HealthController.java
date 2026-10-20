@@ -4,10 +4,7 @@ import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * Liveness only, unauthenticated. Deliberately does not touch the TMS or FMCSA: a flaky
- * downstream shouldn't get the container restarted.
- */
+// Liveness only: doesn't call the TMS or FMCSA, so a flaky downstream can't get the container restarted.
 @RestController
 public class HealthController {
 

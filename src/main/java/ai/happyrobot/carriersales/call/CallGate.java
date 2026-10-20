@@ -2,10 +2,7 @@ package ai.happyrobot.carriersales.call;
 
 import org.springframework.stereotype.Component;
 
-/**
- * The compliance gate: load tools only work for a call that passed FMCSA and the OTP.
- * Enforced here, server side, so no wording on the call can talk the agent around it.
- */
+// Load and negotiation tools only work once FMCSA and the OTP passed. Enforced server side.
 @Component
 public class CallGate {
 
@@ -22,6 +19,6 @@ public class CallGate {
         if (callId == null || callId.isBlank()) {
             return false;
         }
-        return sessions.find(callId).map(session -> session.state() == CallState.OTP_VERIFIED).orElse(false);
+        return sessions.find(callId).map(session -> session.state().passedOtp()).orElse(false);
     }
 }

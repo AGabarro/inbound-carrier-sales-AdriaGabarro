@@ -2,12 +2,7 @@ package ai.happyrobot.carriersales.call;
 
 import java.time.Instant;
 
-/**
- * Everything the backend remembers about one call, keyed by HappyRobot's X-Call-ID.
- * Mutable on purpose: the state moves forward as the call goes on. Services that change it
- * synchronize on the session, since two tool calls of the same call could overlap.
- * The one-time code is never stored, only its hash.
- */
+// What the backend remembers about one call. Services synchronize on it; only the code's hash is kept.
 public class CallSession {
 
     private final String callId;
@@ -19,6 +14,7 @@ public class CallSession {
     private Instant otpExpiresAt;
     private int otpAttempts;
     private int otpSends;
+    private Negotiation negotiation;
 
     public CallSession(String callId, Instant createdAt) {
         this.callId = callId;
@@ -89,9 +85,16 @@ public class CallSession {
         this.otpSends = otpSends;
     }
 
+    public Negotiation negotiation() {
+        return negotiation;
+    }
+
+    public void negotiation(Negotiation negotiation) {
+        this.negotiation = negotiation;
+    }
+
     @Override
     public String toString() {
-        // No hash, on purpose: nothing about the code goes into logs.
         return "CallSession[callId=" + callId + ", state=" + state + ", mc=" + mcNumber + "]";
     }
 }

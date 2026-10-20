@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import ai.happyrobot.carriersales.loads.model.LoadDetails;
+import ai.happyrobot.carriersales.loads.model.LoadLookup;
 import ai.happyrobot.carriersales.loads.model.SearchResult;
 import ai.happyrobot.carriersales.tms.TmsClient;
 import ai.happyrobot.carriersales.tms.exception.FaultKind;
@@ -290,6 +291,27 @@ class LoadServiceTest {
     void unsafeLoadIdIsRejectedBeforeCallingTheTms() {
         assertThat(service.details("LD1|CMD:LOAD_BOOK").error()).isEqualTo("INVALID_REQUEST");
         verifyNoInteractions(tms);
+    }
+
+    @Test
+    void findBookableGivesNegotiationTheFullRecord() {
+        when(tms.send(any())).thenReturn(List.of(load("LD00979", NOW.plusDays(2), "OPEN")));
+
+        LoadLookup lookup = service.findBookable("ld-00979");
+
+        assertThat(lookup.error()).isEmpty();
+        assertThat(lookup.load().maxBuy()).isEqualTo(2100);
+        assertThat(lookup.toString()).doesNotContain("2100");
+    }
+
+    @Test
+    void findBookableExplainsWhyNot() {
+        when(tms.send(any())).thenReturn(List.of(load("LD00979", NOW.plusDays(2), "BOOKED")));
+
+        LoadLookup lookup = service.findBookable("LD00979");
+
+        assertThat(lookup.load()).isNull();
+        assertThat(lookup.error()).isEqualTo("NOT_AVAILABLE");
     }
 
     @Test

@@ -12,11 +12,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
-/**
- * Hands the code to the HappyRobot "OTP Sender" workflow, which emails it. The voice agent's workflow never
- * sees this request. A 2xx means accepted; delivery itself isn't awaited. One retry on network errors.
- * Never logs the URL, the key or the code.
- */
+// Hands the code to the OTP Sender workflow. One retry on network errors; never logs URL, key or code.
 public class WebhookOtpSender implements OtpSender {
 
     private static final Logger log = LoggerFactory.getLogger(WebhookOtpSender.class);
@@ -32,7 +28,7 @@ public class WebhookOtpSender implements OtpSender {
 
     @Override
     public void send(OtpDelivery delivery) {
-        // Field names and string values exactly as the OTP Sender trigger's schema; not our snake_case mapper.
+        // The trigger's schema, all strings.
         Map<String, String> body = new LinkedHashMap<>();
         body.put("call_id", delivery.callId());
         body.put("mc_number", delivery.mcNumber());
@@ -55,7 +51,6 @@ public class WebhookOtpSender implements OtpSender {
                 log.info("OTP for call {} handed to the OTP Sender workflow", delivery.callId());
                 return;
             } catch (RestClientResponseException e) {
-                // A rejected request (bad key, bad payload) won't fix itself: no retry.
                 log.warn("OTP Sender rejected the request with HTTP {}", e.getStatusCode().value());
                 throw new OtpDeliveryException("OTP Sender answered HTTP " + e.getStatusCode().value());
             } catch (RestClientException e) {

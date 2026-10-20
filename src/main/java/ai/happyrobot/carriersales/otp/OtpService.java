@@ -15,7 +15,6 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Map;
@@ -27,11 +26,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-/**
- * One-time code for a call: generated here, delivered to the contact on file, checked here.
- * The code itself is never stored, logged or returned: only an HMAC of it is kept in the call session.
- * Rules: 5 minute expiry, 3 attempts, 2 sends per call; a new code replaces the previous one.
- */
+// Code generated and checked here; only its HMAC is kept. 5 min, 3 attempts, 2 sends per call.
 @Service
 public class OtpService {
 
@@ -51,7 +46,7 @@ public class OtpService {
     private final OtpSender sender;
     private final Clock clock;
     private final SecureRandom random = new SecureRandom();
-    // Random per process: sessions live in memory too, so a restart loses both together. No extra secret to manage.
+    // Random per process: sessions are in memory too, so a restart loses both.
     private final byte[] hmacKey = new byte[32];
 
     @Autowired
@@ -108,7 +103,6 @@ public class OtpService {
                         "I couldn't send the code just now. Let me try again in a moment.", resendsLeft);
             }
 
-            // Only after a successful hand-off: a new code replaces any previous one.
             session.otpHash(hash(callId, code));
             session.otpExpiresAt(clock.instant().plus(TTL));
             session.otpAttempts(0);
@@ -147,7 +141,7 @@ public class OtpService {
             }
             String code = digits(spokenCode);
             if (code.length() != 6) {
-                // A mishearing, not a wrong guess: doesn't use up an attempt.
+                // A mishearing, not a guess: no attempt used.
                 return new OtpVerifyResult("INVALID_FORMAT", "The code has 6 digits. Can you read it to me again?",
                         false, attemptsLeft, false);
             }
@@ -176,13 +170,13 @@ public class OtpService {
         }
     }
 
-    /** "jane@schneider.com" -> "j***@schneider.com": enough for the carrier to recognise, useless to anyone else. */
+    // "jane@schneider.com" -> "j***@schneider.com"
     static String mask(String email) {
         int at = email.indexOf('@');
         return at < 1 ? "***" : email.charAt(0) + "***" + email.substring(at);
     }
 
-    /** "4-8-2 9 1 3", "four eight two nine one three", "four 8 two, 9 one 3" -> "482913". */
+    // "4-8-2 9 1 3", "four eight two nine one three" -> "482913"
     static String digits(String spoken) {
         if (spoken == null) {
             return "";

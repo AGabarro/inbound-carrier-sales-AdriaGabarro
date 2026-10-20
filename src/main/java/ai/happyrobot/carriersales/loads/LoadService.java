@@ -1,6 +1,7 @@
 package ai.happyrobot.carriersales.loads;
 
 import ai.happyrobot.carriersales.loads.model.LoadDetails;
+import ai.happyrobot.carriersales.loads.model.LoadLookup;
 import ai.happyrobot.carriersales.loads.model.LoadSummary;
 import ai.happyrobot.carriersales.loads.model.SearchResult;
 import ai.happyrobot.carriersales.tms.TmsClient;
@@ -24,19 +25,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-/**
- * Load search and detail for the voice agent: turns spoken filters into a TMS query, hides loads that
- * can't be offered, and maps what's left to small, speakable responses. MAX_BUY never leaves this class.
- * Every outcome, including bad input and a TMS outage, is a normal result with an error code and a
- * sentence: HappyRobot only reads 200 responses.
- */
+// Spoken filters -> TMS query -> only bookable loads, as small speakable results. MAX_BUY never leaves.
 @Service
 public class LoadService {
 
     private static final Logger log = LoggerFactory.getLogger(LoadService.class);
 
     private static final int MAX_RESULTS = 3;
-    // Search checks each candidate's full record (~40ms each from Railway); this bounds the worst case.
+    // Each search candidate is confirmed with its full record; this bounds the extra TMS calls.
     private static final int MAX_DETAIL_LOOKUPS = 5;
     // A truck averages well under this over a whole trip; above it the load data can't be real.
     private static final double MAX_PLAUSIBLE_MPH = 60;
@@ -61,7 +57,6 @@ public class LoadService {
         this(tms, Clock.system(LoadFormatter.BROKERAGE_TIME));
     }
 
-    // Tests pass a fixed clock so "pickup already passed" is deterministic.
     LoadService(TmsClient tms, Clock clock) {
         this.tms = tms;
         this.clock = clock;
@@ -100,38 +95,46 @@ public class LoadService {
     }
 
     public LoadDetails details(String loadId) {
+        LoadLookup lookup = findBookable(loadId);
+        return lookup.load() == null
+                ? LoadDetails.unavailable(lookup.error(), lookup.message())
+                : toDetails(lookup.load());
+    }
+
+    // Includes MAX_BUY: callers must never put it in a response.
+    public LoadLookup findBookable(String loadId) {
         if (loadId == null || loadId.isBlank()) {
-            return LoadDetails.unavailable(INVALID_REQUEST, "Which load number are you calling about?");
+            return LoadLookup.problem(INVALID_REQUEST, "Which load number are you calling about?");
         }
         // Spoken IDs arrive as "ld 00994", "LD-00994"...: keep letters and digits only.
         String id = loadId.toUpperCase(Locale.ROOT).replaceAll("[\\s\\-_.#]", "");
         if (!LOAD_ID.matcher(id).matches()) {
-            return LoadDetails.unavailable(INVALID_REQUEST, "I didn't catch the load number. Can you read it again?");
+            return LoadLookup.problem(INVALID_REQUEST, "I didn't catch the load number. Can you read it again?");
         }
 
         try {
             List<TmsLoad> found = tms.send(TmsRequest.loadGet(id));
             if (found.isEmpty()) {
-                return LoadDetails.unavailable(NOT_FOUND, UNKNOWN_LOAD);
+                return LoadLookup.problem(NOT_FOUND, UNKNOWN_LOAD);
             }
             TmsLoad load = found.getFirst();
             // Exists but can't be offered: covered, pickup passed, or implausible data.
             if (!isBookable(load, LocalDateTime.now(clock))) {
-                return LoadDetails.unavailable(NOT_AVAILABLE, NO_LONGER_AVAILABLE);
+                return LoadLookup.problem(NOT_AVAILABLE, NO_LONGER_AVAILABLE);
             }
-            return toDetails(load);
+            return LoadLookup.found(load);
         } catch (TmsFaultException e) {
-            return LoadDetails.unavailable(TMS_UNAVAILABLE, SYSTEM_SLOW);
+            return LoadLookup.problem(TMS_UNAVAILABLE, SYSTEM_SLOW);
         } catch (TmsErrorException e) {
             if (e.code().equals("NOT_FOUND")) {
-                return LoadDetails.unavailable(NOT_FOUND, UNKNOWN_LOAD);
+                return LoadLookup.problem(NOT_FOUND, UNKNOWN_LOAD);
             }
             log.warn("Unexpected TMS error {}: {}", e.code(), e.tmsMessage());
-            return LoadDetails.unavailable(TMS_ERROR, SYSTEM_ERROR);
+            return LoadLookup.problem(TMS_ERROR, SYSTEM_ERROR);
         }
     }
 
-    // Blank values are ignored: HappyRobot always sends all six params, empty when not mentioned.
+    // HappyRobot sends every param, empty when unknown.
     private static Map<String, String> filters(String originState, String originCity, String destinationState,
                                                String destinationCity, String equipment, String pickupDate) {
         Map<String, String> filters = new LinkedHashMap<>();
@@ -147,11 +150,7 @@ public class LoadService {
         return filters;
     }
 
-    /**
-     * Search summaries have no delivery time, so a load can only be judged plausible from its full record.
-     * Fetching it here means search never offers a load that get_load_details would then refuse.
-     * The summary is built from the full record, so both endpoints always show the same values.
-     */
+    // Summaries have no delivery time: confirm each candidate with its full record so search and details agree.
     private List<LoadSummary> bookable(List<TmsLoad> candidates, LocalDateTime now) {
         List<LoadSummary> bookable = new ArrayList<>();
         for (TmsLoad candidate : candidates) {
@@ -164,7 +163,7 @@ public class LoadService {
                     bookable.add(toSummary(full.getFirst()));
                 }
             } catch (TmsFaultException | TmsErrorException e) {
-                // Can't confirm this one right now: skip it rather than fail the whole search.
+                // Can't confirm it right now: skip it.
                 log.info("Load {} skipped in search: {}", candidate.loadId(), e.getMessage());
             }
         }
@@ -179,7 +178,6 @@ public class LoadService {
         return "OPEN".equals(load.status()) && load.pickupAt().isAfter(now);
     }
 
-    // e.g. LD00992: Honolulu -> Amarillo, 3,495 miles in 21 hours = 166 mph.
     private static boolean isImplausible(TmsLoad load) {
         if (!load.deliveryAt().isAfter(load.pickupAt())) {
             log.info("Load {} hidden: delivery is not after pickup", load.loadId());

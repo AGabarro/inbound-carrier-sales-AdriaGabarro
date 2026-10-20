@@ -10,18 +10,14 @@ import java.time.format.DateTimeParseException;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
-/**
- * Translates between what the voice agent sends/says and what the TMS expects/returns:
- * "dry van" -> DRY_VAN -> "Dry Van", "2026-10-20" -> 20261020,
- * 2026-10-20T07:30 -> "2026-10-20T07:30:00-05:00" (iso) and "Tue Oct 20, 7:30 AM CT" (display).
- */
+// Between what the agent says and what the TMS expects: "dry van" <-> DRY_VAN, dates, labels.
 public final class LoadFormatter {
 
-    // TMS dates carry no timezone; we read them as the brokerage's local time (Chicago).
+    // TMS dates have no timezone: read as the brokerage's local time.
     public static final ZoneId BROKERAGE_TIME = ZoneId.of("America/Chicago");
 
     private static final Pattern STATE = Pattern.compile("[A-Z]{2}");
-    // Letters, spaces and the punctuation real US city names use ("St. Louis", "Coeur d'Alene", "Winston-Salem").
+    // Real US city names: "St. Louis", "Coeur d'Alene", "Winston-Salem".
     private static final Pattern CITY = Pattern.compile("[A-Za-z .'-]{2,30}");
     private static final DateTimeFormatter TMS_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final DateTimeFormatter DISPLAY = DateTimeFormatter.ofPattern("EEE MMM d, h:mm a 'CT'", Locale.US);
@@ -66,7 +62,6 @@ public final class LoadFormatter {
         return city;
     }
 
-    /** ISO date from the agent ("2026-10-20") to the TMS search format ("20261020"). */
     public static String tmsDate(String isoDate) {
         try {
             return LocalDate.parse(isoDate.trim()).format(TMS_DATE);
@@ -75,12 +70,12 @@ public final class LoadFormatter {
         }
     }
 
-    /** "2026-10-20T07:30:00-05:00": unambiguous, so the agent can reason about "tomorrow" or "this Friday". */
+    // ISO with offset, so the agent can reason about dates.
     public static String iso(LocalDateTime dateTime) {
         return dateTime.atZone(BROKERAGE_TIME).toOffsetDateTime().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
     }
 
-    /** "Tue Oct 20, 7:30 AM CT": short enough to read out on a call. */
+    // "Tue Oct 20, 7:30 AM CT", for speaking.
     public static String display(LocalDateTime dateTime) {
         return dateTime.format(DISPLAY);
     }

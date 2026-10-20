@@ -4,7 +4,6 @@ import static java.nio.charset.StandardCharsets.US_ASCII;
 
 import ai.happyrobot.carriersales.config.TmsProperties;
 import ai.happyrobot.carriersales.tms.exception.FaultKind;
-import ai.happyrobot.carriersales.tms.exception.TmsErrorException;
 import ai.happyrobot.carriersales.tms.exception.TmsFaultException;
 import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import ai.happyrobot.carriersales.tms.protocol.TmsCommand;
@@ -23,12 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/**
- * Sends one request to the legacy TMS and returns the loads. Each attempt opens a fresh connection
- * (the TMS serves one request per connection) and has its own time budget. Broken replies
- * ({@link TmsFaultException}) are retried; TMS errors ({@link TmsErrorException}) are real answers
- * and are not.
- */
+// One fresh connection per attempt. Faults are retried; TMS errors are real answers and are not.
 @Component
 public class TmsClient {
 
@@ -47,7 +41,7 @@ public class TmsClient {
 
     public List<TmsLoad> send(TmsRequest request) {
         if (request.command() == TmsCommand.LOAD_BOOK) {
-            // Retrying a booking blindly could double-book: Step 7 adds verify-after-failure first.
+            // Retrying a booking blindly could double-book.
             throw new UnsupportedOperationException("To be implemented");
         }
         log.debug("TMS request {}", TmsRequestEncoder.redacted(request));
@@ -66,7 +60,6 @@ public class TmsClient {
         }
     }
 
-    /** One attempt: connect, send the line, read until the reply is complete, the server closes, or time runs out. */
     private String exchange(TmsRequest request) {
         long deadline = System.nanoTime() + properties.attemptTimeout().toNanos();
         try (Socket socket = new Socket()) {
@@ -108,7 +101,7 @@ public class TmsClient {
                 || (reply.startsWith("ERR|") && reply.endsWith("\r\n"));
     }
 
-    /** Time left in this attempt. Never 0, because a socket timeout of 0 means "wait forever". */
+    // Never 0: a socket timeout of 0 means "wait forever".
     private static int remainingMillis(long deadline) throws SocketTimeoutException {
         long remaining = (deadline - System.nanoTime()) / 1_000_000;
         if (remaining <= 0) {

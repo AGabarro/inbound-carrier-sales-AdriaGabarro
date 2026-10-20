@@ -12,23 +12,18 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
-/**
- * Looks up a carrier by MC (docket) number in the FMCSA QCMobile API. Unknown MC numbers come back as
- * HTTP 200 with an empty "content" list, so they are an empty Optional, not an error.
- */
+// Unknown MC numbers come back as 200 with an empty list: an empty Optional, not an error.
 @Component
 public class FmcsaClient {
 
     private static final Logger log = LoggerFactory.getLogger(FmcsaClient.class);
     private static final String BASE_URL = "https://mobile.fmcsa.dot.gov/qc/services";
-    // FMCSA either answers in ~0.5s or hangs for 10s+ (measured from Railway). A short timeout plus one
-    // retry turns most hangs into a ~4.5s answer instead of a failure.
+    // FMCSA sometimes hangs instead of answering: a short timeout plus one retry recovers most of those.
     private static final int MAX_ATTEMPTS = 2;
 
     private final RestClient restClient;
     private final FmcsaProperties properties;
 
-    // Spring Boot's builder: timeouts come from spring.http.client.* in application.yml.
     public FmcsaClient(RestClient.Builder builder, FmcsaProperties properties) {
         this.restClient = builder.baseUrl(BASE_URL).build();
         this.properties = properties;
@@ -43,7 +38,7 @@ public class FmcsaClient {
         return carrier.isMissingNode() ? Optional.empty() : Optional.of(toCarrier(carrier));
     }
 
-    // Retries only timeouts and connection errors; an HTTP error status (e.g. a 403 block) won't fix itself.
+    // Only timeouts and connection errors are retried; an HTTP error won't fix itself.
     private JsonNode fetch(String mcNumber) {
         for (int attempt = 1; ; attempt++) {
             try {
@@ -52,7 +47,7 @@ public class FmcsaClient {
                         .retrieve()
                         .body(JsonNode.class);
             } catch (RestClientResponseException e) {
-                // Only the status: the exception message contains the URL, and the URL contains the key.
+                // The exception message has the URL, which has the key: log the status only.
                 log.warn("FMCSA lookup failed with HTTP {}", e.getStatusCode().value());
                 throw new FmcsaUnavailableException("FMCSA answered HTTP " + e.getStatusCode().value());
             } catch (RestClientException e) {
@@ -64,7 +59,7 @@ public class FmcsaClient {
         }
     }
 
-    // FMCSA uses camelCase names; reading the JSON tree avoids our app-wide snake_case setting.
+    // Read as a tree: FMCSA's camelCase doesn't match our snake_case mapper.
     private static FmcsaCarrier toCarrier(JsonNode c) {
         return new FmcsaCarrier(
                 text(c, "legalName"),
@@ -80,7 +75,6 @@ public class FmcsaClient {
                 c.path("totalDrivers").asInt(0));
     }
 
-    // FMCSA sends JSON null for missing values; keep those as Java null.
     private static String text(JsonNode node, String field) {
         JsonNode value = node.path(field);
         return value.isNull() || value.isMissingNode() ? null : value.asText();

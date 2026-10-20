@@ -16,17 +16,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/**
- * Strict parser for raw TMS responses. The TMS injects faults that still look valid (cut on a line
- * boundary, garbage spliced in before a correct END), so anything not exactly as expected throws
- * {@link TmsFaultException} and no part of it is used. Rules and real examples: docs/tms-discovery-log.md.
- */
+// Strict: faults can look valid (cut on a line boundary, garbage before a correct END), so anything
+// not exactly as expected is a fault and none of it is used.
 public final class TmsResponseParser {
 
     private static final String CRLF = "\r\n";
     private static final String END = "END";
 
-    // Exact key order and padded width, as captured from the live TMS (discovery log 3.4).
+    // Exact key order and padded width, as captured from the live TMS.
     private static final Map<String, Integer> SUMMARY_LAYOUT = layout(
             "LOAD_ID", 12, "ORIG_CITY", 30, "ORIG_STATE", 2, "ORIG_ZIP", 5,
             "DEST_CITY", 30, "DEST_STATE", 2, "DEST_ZIP", 5, "PICKUP_DT", 14,
@@ -50,15 +47,11 @@ public final class TmsResponseParser {
     private TmsResponseParser() {
     }
 
-    /**
-     * Returns the loads (possibly none). Throws {@link TmsErrorException} when the TMS answered with an
-     * ERR line, {@link TmsFaultException} when the reply can't be trusted.
-     */
     public static List<TmsLoad> parse(TmsCommand command, String raw) {
         Map<String, Integer> layout = switch (command) {
             case LOAD_QUERY -> SUMMARY_LAYOUT;
             case LOAD_GET -> DETAIL_LAYOUT;
-            case LOAD_BOOK -> throw new UnsupportedOperationException("LOAD_BOOK responses are parsed from Step 7");
+            case LOAD_BOOK -> throw new UnsupportedOperationException("LOAD_BOOK responses are not parsed yet");
         };
 
         if (raw == null || raw.isEmpty()) {
@@ -103,7 +96,6 @@ public final class TmsResponseParser {
         return new TmsErrorException(code, parts[2].substring("MSG:".length()).trim());
     }
 
-    /** Splits a record line and checks keys (exact order) and padded widths. Returns trimmed values. */
     private static Map<String, String> fields(String line, Map<String, Integer> layout) {
         String[] parts = line.split("\\|", -1);
         List<String> expectedKeys = List.copyOf(layout.keySet());

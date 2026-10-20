@@ -14,11 +14,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
-/**
- * Carrier verification as the brief defines it: look the MC number up in FMCSA and check for active
- * operating authority. If the carrier does not pass, the call ends. A pass binds the MC to the call,
- * which is the first step towards unlocking loads (the OTP is the second).
- */
+// FMCSA check for active operating authority. A pass binds the MC to the call.
 @Service
 public class CarrierService {
 
@@ -37,7 +33,6 @@ public class CarrierService {
         this.sessions = sessions;
     }
 
-    // Every outcome is a normal result with an error code and a sentence: HappyRobot only reads 200 responses.
     public VerifyResult verify(String spokenMcNumber, String callId) {
         String mc;
         try {
@@ -46,7 +41,7 @@ public class CarrierService {
             return VerifyResult.notEligible(INVALID_REQUEST, "", e.getMessage(), "");
         }
 
-        // Once a call has verified an MC, it can't switch to another one (e.g. after the OTP went elsewhere).
+        // A verified call can't switch to another MC.
         Optional<CallSession> session = Optional.ofNullable(callId).filter(id -> !id.isBlank()).flatMap(sessions::find);
         if (session.isPresent() && session.get().state() != CallState.NEW && !mc.equals(session.get().mcNumber())) {
             return VerifyResult.notEligible(MC_MISMATCH, "",
@@ -82,7 +77,7 @@ public class CarrierService {
                 safetyRating(carrier.safetyRating()));
     }
 
-    // Marks the call as FMCSA_VERIFIED for this MC. Verifying the same MC again doesn't reset later progress.
+    // Verifying the same MC again keeps later progress.
     private void bindToCall(String callId, String mc, String carrierName) {
         if (callId == null || callId.isBlank()) {
             return; // nothing to remember; the load gate will still refuse this call
@@ -97,8 +92,7 @@ public class CarrierService {
         }
     }
 
-    // The brief's check, in FMCSA terms: allowed to operate, USDOT status active, and for-hire authority
-    // (common or contract) active. allowedToOperate alone is not enough: it is "Y" even for inactive carriers.
+    // allowedToOperate alone isn't enough: it's "Y" even for inactive carriers.
     static boolean hasActiveOperatingAuthority(FmcsaCarrier carrier) {
         return "Y".equals(carrier.allowedToOperate())
                 && "A".equals(carrier.statusCode())
@@ -129,8 +123,7 @@ public class CarrierService {
         };
     }
 
-    // FMCSA names are upper case; "SCHNEIDER NATIONAL CARRIERS INC" reads better as "Schneider National Carriers Inc".
-    // "LLC" stays as is, otherwise the voice would read "Llc" as a word.
+    // "SCHNEIDER NATIONAL CARRIERS INC" -> "Schneider National Carriers Inc"; LLC kept so it isn't read as a word.
     private static String titleCase(String text) {
         if (text == null || text.isBlank()) {
             return "";
