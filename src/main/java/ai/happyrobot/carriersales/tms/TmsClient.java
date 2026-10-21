@@ -18,6 +18,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.time.Duration;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,7 +49,7 @@ public class TmsClient {
 
         for (int attempt = 1; ; attempt++) {
             try {
-                return TmsResponseParser.parse(request.command(), exchange(request));
+                return TmsResponseParser.parse(request.command(), exchange(request, properties.attemptTimeout()));
             } catch (TmsFaultException e) {
                 if (attempt == MAX_ATTEMPTS) {
                     log.warn("TMS {} failed after {} attempts: {}", request.command(), MAX_ATTEMPTS, e.getMessage());
@@ -64,11 +65,11 @@ public class TmsClient {
     public TmsBooking book(String loadId, String mcNumber, int agreedRate) {
         TmsRequest request = TmsRequest.loadBook(loadId, mcNumber, agreedRate);
         log.info("TMS LOAD_BOOK {} for MC {} at {}", loadId, mcNumber, agreedRate);
-        return TmsResponseParser.parseBooking(exchange(request));
+        return TmsResponseParser.parseBooking(exchange(request, properties.bookTimeout()));
     }
 
-    private String exchange(TmsRequest request) {
-        long deadline = System.nanoTime() + properties.attemptTimeout().toNanos();
+    private String exchange(TmsRequest request, Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(properties.host(), properties.port()), remainingMillis(deadline));
 
@@ -96,7 +97,7 @@ public class TmsClient {
             return reply.toString(US_ASCII);
         } catch (SocketTimeoutException e) {
             throw new TmsFaultException(FaultKind.TIMEOUT,
-                    "no complete reply within " + properties.attemptTimeout().toMillis() + " ms");
+                    "no complete reply within " + timeout.toMillis() + " ms");
         } catch (IOException e) {
             throw new TmsFaultException(FaultKind.IO_ERROR, e.getClass().getSimpleName() + ": " + e.getMessage());
         }

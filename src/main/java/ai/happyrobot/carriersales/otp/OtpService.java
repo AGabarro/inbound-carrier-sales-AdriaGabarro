@@ -2,6 +2,7 @@ package ai.happyrobot.carriersales.otp;
 
 import ai.happyrobot.carriersales.carriers.CarrierDirectory;
 import ai.happyrobot.carriersales.carriers.McNumber;
+import ai.happyrobot.carriersales.config.DeploymentProperties;
 import ai.happyrobot.carriersales.otp.exception.OtpDeliveryException;
 import ai.happyrobot.carriersales.otp.model.OtpDelivery;
 import ai.happyrobot.carriersales.otp.model.OtpSendResult;
@@ -27,6 +28,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 // Code generated and checked here; only its HMAC is kept. 5 min, 3 attempts, 2 sends per call.
+// Development with a test code: that code is issued instead of a random one and no email is sent;
+// checking (attempts, lockout, expiry) is unchanged.
 @Service
 public class OtpService {
 
@@ -45,21 +48,32 @@ public class OtpService {
     private final CarrierDirectory directory;
     private final OtpSender sender;
     private final Clock clock;
+    private final DeploymentProperties deployment;
     private final SecureRandom random = new SecureRandom();
     // Random per process: sessions are in memory too, so a restart loses both.
     private final byte[] hmacKey = new byte[32];
 
     @Autowired
-    public OtpService(SessionStore sessions, CarrierDirectory directory, OtpSender sender) {
-        this(sessions, directory, sender, Clock.systemUTC());
+    public OtpService(SessionStore sessions, CarrierDirectory directory, OtpSender sender,
+                      DeploymentProperties deployment) {
+        this(sessions, directory, sender, Clock.systemUTC(), deployment);
     }
 
     OtpService(SessionStore sessions, CarrierDirectory directory, OtpSender sender, Clock clock) {
+        this(sessions, directory, sender, clock, DeploymentProperties.production());
+    }
+
+    OtpService(SessionStore sessions, CarrierDirectory directory, OtpSender sender, Clock clock,
+               DeploymentProperties deployment) {
         this.sessions = sessions;
         this.directory = directory;
         this.sender = sender;
         this.clock = clock;
+        this.deployment = deployment;
         random.nextBytes(hmacKey);
+        if (deployment.hasTestOtpCode()) {
+            log.warn("Development: the test code is issued for every call and no code emails are sent");
+        }
     }
 
     public OtpSendResult send(String callId, String requestedMc) {
@@ -93,10 +107,16 @@ public class OtpService {
                         + "number, so I can't verify you on this call. A rep will follow up with you.", resendsLeft);
             }
 
-            String code = "%06d".formatted(random.nextInt(1_000_000));
+            String code = deployment.hasTestOtpCode()
+                    ? deployment.testOtpCode()
+                    : "%06d".formatted(random.nextInt(1_000_000));
             try {
-                sender.send(new OtpDelivery(callId, session.mcNumber(), session.carrierName(), email.get(), code,
-                        (int) TTL.toMinutes()));
+                if (deployment.hasTestOtpCode()) {
+                    log.info("Development: test code issued for call {}, no email sent", callId);
+                } else {
+                    sender.send(new OtpDelivery(callId, session.mcNumber(), session.carrierName(), email.get(), code,
+                            (int) TTL.toMinutes()));
+                }
             } catch (OtpDeliveryException e) {
                 log.warn("OTP delivery failed for call {}: {}", callId, e.getMessage());
                 return OtpSendResult.notSent("DELIVERY_FAILED",

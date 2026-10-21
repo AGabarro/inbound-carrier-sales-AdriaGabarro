@@ -26,7 +26,8 @@ import org.springframework.stereotype.Service;
 
 // Books the agreed load at the agreed rate (never a rate from the request: the TMS doesn't check MAX_BUY),
 // then hands the carrier to a senior rep (mocked). A booking is never retried blindly.
-// Development runs every check but never writes to the TMS: the booking reference is a fake "DEV-" one.
+// Development runs the call's checks but never writes to the TMS: the booking reference is a fake "DEV-" one,
+// and loads aren't claimed (nothing is booked, so parallel test calls on the same load all succeed).
 @Service
 public class BookingService {
 
@@ -77,7 +78,7 @@ public class BookingService {
             if (requestedLoadId != null && !requestedLoadId.isBlank() && !loadId.equals(cleanLoadId(requestedLoadId))) {
                 return BookingResult.problem("LOAD_MISMATCH", "We agreed a rate on " + loadId + ", so that's the one I can book.");
             }
-            if (!claims.claim(loadId, callId)) {
+            if (!deployment.isDevelopment() && !claims.claim(loadId, callId)) {
                 session.releaseNegotiation();
                 return BookingResult.problem("LOAD_TAKEN", "Ah, sorry, another carrier just grabbed that one. "
                         + "Want me to look for something else on your lane?");

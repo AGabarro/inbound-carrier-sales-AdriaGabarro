@@ -3,6 +3,7 @@ package ai.happyrobot.carriersales.otp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import ai.happyrobot.carriersales.carriers.CarrierDirectory;
+import ai.happyrobot.carriersales.config.DeploymentProperties;
 import ai.happyrobot.carriersales.otp.exception.OtpDeliveryException;
 import ai.happyrobot.carriersales.otp.model.OtpDelivery;
 import ai.happyrobot.carriersales.otp.model.OtpSendResult;
@@ -220,6 +221,51 @@ class OtpServiceTest {
         assertThat(sent.toString()).doesNotContain(code);
         assertThat(verified.toString()).doesNotContain(code);
         assertThat(sender.last().toString()).doesNotContain(code);
+    }
+
+    // --- development test code ---
+
+    private OtpService withTestCode() {
+        return new OtpService(sessions, new CarrierDirectory("133655:jane@schneider.com"), sender, clock,
+                DeploymentProperties.developmentWithTestCode("000000"));
+    }
+
+    @Test
+    void developmentTestCodeVerifiesWithoutAnyEmail(CapturedOutput output) {
+        OtpService development = withTestCode();
+
+        OtpSendResult sent = development.send(CALL, "");
+
+        assertThat(sent.sent()).isTrue();
+        assertThat(sent.destinationMasked()).isEqualTo("j***@schneider.com");
+        assertThat(sender.sent).isEmpty();
+        assertThat(output).contains("test code issued for call " + CALL);
+        assertThat(development.verify(CALL, "", "zero zero zero, zero zero zero").verified()).isTrue();
+    }
+
+    @Test
+    void developmentTestCodeKeepsTheNormalRules() {
+        OtpService development = withTestCode();
+        development.send(CALL, "");
+
+        assertThat(development.verify(CALL, "", "111111").error()).isEqualTo("INVALID_CODE");
+        assertThat(development.verify(CALL, "", "111111").attemptsLeft()).isEqualTo(1);
+        assertThat(development.verify(CALL, "", "111111").error()).isEqualTo("LOCKED");
+        assertThat(development.verify(CALL, "", "000000").error()).isEqualTo("LOCKED");
+
+        verifiedCarrier("run-2", "133655");
+        development.send("run-2", "");
+        clock.advance(Duration.ofMinutes(6));
+        assertThat(development.verify("run-2", "", "000000").error()).isEqualTo("EXPIRED");
+    }
+
+    @Test
+    void productionTreatsTheTestCodeAsAWrongCode() {
+        otp.send(CALL, "");
+        String test = sender.last().code().equals("000000") ? "999999" : "000000";
+
+        assertThat(otp.verify(CALL, "", test).error()).isEqualTo("INVALID_CODE");
+        assertThat(sender.sent).hasSize(1); // production still emails the real code
     }
 
     @Test

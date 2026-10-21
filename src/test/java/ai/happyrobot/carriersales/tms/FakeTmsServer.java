@@ -31,6 +31,19 @@ final class FakeTmsServer implements AutoCloseable {
         return socket -> write(socket, raw);
     }
 
+    /** Waits, then writes the raw reply and closes ("slow but healthy"). */
+    static Behaviour replyAfter(long delayMillis, String raw) {
+        return socket -> {
+            try {
+                Thread.sleep(delayMillis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            write(socket, raw);
+        };
+    }
+
     /** Writes the raw reply, then keeps the connection open until the client closes it ("delayed close"). */
     static Behaviour replyAndHoldOpen(String raw) {
         return socket -> {

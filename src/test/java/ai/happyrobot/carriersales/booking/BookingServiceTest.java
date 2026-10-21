@@ -96,6 +96,21 @@ class BookingServiceTest {
     }
 
     @Test
+    void developmentLetsEveryTestCallBookTheSameLoad() {
+        BookingService development = new BookingService(sessions, claims, tms, DeploymentProperties.development());
+        agreedCall("run-2", "LD01000", 4100);
+
+        BookingResult first = development.book(CALL, "", "LD01000");
+        BookingResult second = development.book("run-2", "", "LD01000");
+
+        assertThat(first.booked()).isTrue();
+        assertThat(second.booked()).isTrue();
+        assertThat(second.bookingReference()).startsWith("DEV-").isNotEqualTo(first.bookingReference());
+        assertThat(claims.claim("LD01000", "a-production-call")).isTrue(); // development never claimed it
+        verifyNoInteractions(tms);
+    }
+
+    @Test
     void developmentStillRunsEveryCheck() {
         BookingService development = new BookingService(sessions, claims, tms, DeploymentProperties.development());
         sessions.getOrCreate("run-6").state(SessionState.FMCSA_VERIFIED);

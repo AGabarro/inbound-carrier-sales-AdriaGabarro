@@ -21,6 +21,8 @@ app:
     environment: ${APP_ENV:production}
     # Set by Railway. A development app refuses to start in Railway's "production" environment.
     platform-environment: ${RAILWAY_ENVIRONMENT_NAME:}
+    # Development only: every code sent is this one and no email goes out, for automated test calls.
+    test-otp-code: ${TEST_OTP_CODE:}
   tms:
     host: ${TMS_HOST:tramway.proxy.rlwy.net}
     port: ${TMS_PORT:17159}

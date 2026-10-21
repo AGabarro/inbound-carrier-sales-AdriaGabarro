@@ -25,7 +25,7 @@ class TmsLiveSmokeTest {
                 System.getenv().getOrDefault("TMS_HOST", "tramway.proxy.rlwy.net"),
                 Integer.valueOf(System.getenv().getOrDefault("TMS_PORT", "17159")),
                 System.getenv("TMS_TOKEN"),
-                Duration.ofSeconds(4));
+                Duration.ofSeconds(2), Duration.ofSeconds(4));
 
         List<TmsLoad> loads = new TmsClient(properties).send(TmsRequest.loadQuery(Map.of("DEST_STATE", "TX")));
 

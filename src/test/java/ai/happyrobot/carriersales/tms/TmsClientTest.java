@@ -3,6 +3,7 @@ package ai.happyrobot.carriersales.tms;
 import static ai.happyrobot.carriersales.tms.FakeTmsServer.closeWithoutReply;
 import static ai.happyrobot.carriersales.tms.FakeTmsServer.hang;
 import static ai.happyrobot.carriersales.tms.FakeTmsServer.reply;
+import static ai.happyrobot.carriersales.tms.FakeTmsServer.replyAfter;
 import static ai.happyrobot.carriersales.tms.FakeTmsServer.replyAndHoldOpen;
 import static ai.happyrobot.carriersales.tms.TmsFixtures.fixture;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -162,6 +163,17 @@ class TmsClientTest {
     }
 
     @Test
+    void bookingGetsMoreTimeThanAReadAttempt() throws IOException {
+        // A 400 ms reply: too slow for a 100 ms read attempt, fine for a 2 s booking.
+        try (FakeTmsServer tms = new FakeTmsServer(replyAfter(400, fixture("book-success.txt")))) {
+            TmsClient client = new TmsClient(new TmsProperties("127.0.0.1", tms.port(), TOKEN,
+                    Duration.ofMillis(100), Duration.ofSeconds(2)));
+
+            assertThat(client.book("LD00962", "133655", 3833).bookingRef()).isEqualTo("GFZKYZRT3K4JOEAE");
+        }
+    }
+
+    @Test
     void bookFaultIsNotRetried() throws IOException {
         try (FakeTmsServer tms = new FakeTmsServer(hang(), reply(fixture("book-success.txt")))) {
             assertThatThrownBy(() -> clientFor(tms.port()).book("LD00962", "133655", 3833))
@@ -193,6 +205,6 @@ class TmsClientTest {
     }
 
     private static TmsClient clientFor(int port, Duration attemptTimeout) {
-        return new TmsClient(new TmsProperties("127.0.0.1", port, TOKEN, attemptTimeout));
+        return new TmsClient(new TmsProperties("127.0.0.1", port, TOKEN, attemptTimeout, attemptTimeout));
     }
 }

@@ -45,6 +45,7 @@ Environment variables only (locally, `docker compose` reads `.env`, which is git
 | `CARRIER_CONTACTS` | no | Contact on file per MC, where codes are sent: `133655:ops@carrier.com,650000:...` |
 | `OTP_SENDER_WEBHOOK_URL`, `OTP_SENDER_API_KEY` | no | HappyRobot "OTP Sender" workflow webhook. Empty: codes are not delivered |
 | `APP_ENV` | no | `production` (default) or `development`. See below |
+| `TEST_OTP_CODE` | no | Development only: a fixed 6-digit code for automated test calls. See below |
 | `PORT` | no | HTTP port, default 8080 |
 
 The app refuses to start if a required value is missing, naming the variable but never its value.
@@ -56,6 +57,11 @@ from deployment config only, never from a request. As a guard, the app refuses t
 while the platform says it's the production environment (`RAILWAY_ENVIRONMENT_NAME=production`).
 Both `docker compose` and the cloud default to `production`; set `APP_ENV=development` for test deployments.
 Every call summary includes `environment`, so test calls can be left out of the call log analytics.
+
+**Test code for automated calls (development only).** An automated test caller can't read email, so a
+development deployment can set `TEST_OTP_CODE`: every code issued is that one and no email is sent. Checking is
+unchanged (wrong codes use attempts, 3 lock the call, codes expire). The app refuses to start if `TEST_OTP_CODE`
+is set without `APP_ENV=development`, so in production it can't exist and would fail like any wrong code.
 
 ## Deploy
 

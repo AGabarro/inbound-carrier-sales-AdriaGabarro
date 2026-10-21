@@ -33,7 +33,8 @@ class ConfigPropertiesTest {
             assertThat(tms.host()).isEqualTo("tms.example.com");
             assertThat(tms.port()).isEqualTo(17159);
             assertThat(tms.token()).isEqualTo("super-secret-tms-token");
-            assertThat(tms.attemptTimeout()).isEqualTo(Duration.ofSeconds(4));
+            assertThat(tms.attemptTimeout()).isEqualTo(Duration.ofSeconds(2));
+            assertThat(tms.bookTimeout()).isEqualTo(Duration.ofSeconds(4));
             assertThat(context.getBean(FmcsaProperties.class).apiKey()).isEqualTo("super-secret-fmcsa-key");
             assertThat(context.getBean(SecurityProperties.class).apiKey()).isEqualTo("super-secret-api-key");
         });
@@ -73,6 +74,35 @@ class ConfigPropertiesTest {
                     assertThat(causeChain(context.getStartupFailure()))
                             .contains("APP_ENV=development is not allowed");
                 });
+    }
+
+    @Test
+    void testCodeRefusedOutsideDevelopment() {
+        runner.withPropertyValues(VALID)
+                .withPropertyValues("app.deployment.test-otp-code=000000")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(causeChain(context.getStartupFailure()))
+                            .contains("TEST_OTP_CODE is only allowed with APP_ENV=development");
+                });
+    }
+
+    @Test
+    void testCodeAllowedInDevelopmentAndMasked() {
+        runner.withPropertyValues(VALID)
+                .withPropertyValues("app.deployment.environment=development", "app.deployment.test-otp-code=000000")
+                .run(context -> {
+                    DeploymentProperties deployment = context.getBean(DeploymentProperties.class);
+                    assertThat(deployment.hasTestOtpCode()).isTrue();
+                    assertThat(deployment.toString()).doesNotContain("000000");
+                });
+    }
+
+    @Test
+    void testCodeMustBeSixDigits() {
+        runner.withPropertyValues(VALID)
+                .withPropertyValues("app.deployment.environment=development", "app.deployment.test-otp-code=1234")
+                .run(context -> assertThat(context).hasFailed());
     }
 
     @Test
