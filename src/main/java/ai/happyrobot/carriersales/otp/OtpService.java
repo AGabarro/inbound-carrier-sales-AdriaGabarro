@@ -33,8 +33,8 @@ public class OtpService {
     private static final Logger log = LoggerFactory.getLogger(OtpService.class);
 
     static final Duration TTL = Duration.ofMinutes(5);
-    static final int MAX_ATTEMPTS = 3;
-    static final int MAX_SENDS = 2;
+    public static final int MAX_ATTEMPTS = 3;
+    public static final int MAX_SENDS = 2;
 
     private static final Map<String, String> SPOKEN_DIGITS = Map.ofEntries(
             Map.entry("zero", "0"), Map.entry("oh", "0"), Map.entry("o", "0"), Map.entry("one", "1"),
@@ -109,6 +109,8 @@ public class OtpService {
             session.otpSends(session.otpSends() + 1);
             session.state(SessionState.OTP_SENT);
             String masked = mask(email.get());
+            session.otpDestinationMasked(masked);
+            session.otpSentAt(clock.instant());
             return new OtpSendResult("", "I just sent a 6-digit code to " + masked + ".", true, "email", masked,
                     (int) TTL.toSeconds(), MAX_SENDS - session.otpSends());
         }
@@ -155,6 +157,7 @@ public class OtpService {
             if (match) {
                 session.state(SessionState.OTP_VERIFIED);
                 session.otpHash(""); // used up
+                session.otpVerifiedAt(clock.instant());
                 return new OtpVerifyResult("", "Thanks, you're verified.", true, attemptsLeft, false);
             }
             session.otpAttempts(session.otpAttempts() + 1);

@@ -14,6 +14,7 @@ import ai.happyrobot.carriersales.fmcsa.model.FmcsaCarrier;
 import ai.happyrobot.carriersales.session.Session;
 import ai.happyrobot.carriersales.session.SessionState;
 import ai.happyrobot.carriersales.session.SessionStore;
+import ai.happyrobot.carriersales.session.VerificationAttempt;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -68,7 +69,10 @@ class CarrierServiceTest {
 
         service.verify("999999", "run-1");
 
-        assertThat(sessions.find("run-1")).isEmpty();
+        // Recorded for the audit, but the call stays unverified.
+        Session session = sessions.find("run-1").orElseThrow();
+        assertThat(session.state()).isEqualTo(SessionState.NEW);
+        assertThat(session.verifications()).extracting(VerificationAttempt::reason).containsExactly("NOT_FOUND");
     }
 
     @Test

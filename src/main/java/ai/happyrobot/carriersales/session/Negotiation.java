@@ -1,5 +1,6 @@
 package ai.happyrobot.carriersales.session;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -16,6 +17,8 @@ public class Negotiation {
     private final List<Round> rounds = new ArrayList<>();
     private int lastPosition;
     private int agreedRate;
+    private String status = "open";
+    private Instant closedAt;
 
     public Negotiation(String loadId, int loadboardRate, int maxRate, int[] ceilings) {
         this.loadId = loadId;
@@ -57,13 +60,35 @@ public class Negotiation {
         return agreedRate;
     }
 
+    // open, accepted, rejected, or released (the agreed load fell through).
+    public String status() {
+        return status;
+    }
+
+    public Instant closedAt() {
+        return closedAt;
+    }
+
     public void record(Round round) {
         rounds.add(round);
-        if ("counter".equals(round.decision())) {
-            lastPosition = round.rate();
-        } else if ("accept".equals(round.decision())) {
-            agreedRate = round.rate();
+        switch (round.decision()) {
+            case "counter" -> lastPosition = round.rate();
+            case "accept" -> {
+                agreedRate = round.rate();
+                close("accepted");
+            }
+            case "reject" -> close("rejected");
+            default -> { }
         }
+    }
+
+    void release() {
+        close("released");
+    }
+
+    private void close(String newStatus) {
+        status = newStatus;
+        closedAt = Instant.now();
     }
 
     @Override

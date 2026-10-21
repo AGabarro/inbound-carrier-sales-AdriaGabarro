@@ -18,7 +18,11 @@ public class Session {
     private int otpSends;
     private Negotiation negotiation;
     private final List<Negotiation> previousNegotiations = new ArrayList<>();
-    private String bookingRef = "";
+    private final List<VerificationAttempt> verifications = new ArrayList<>();
+    private String otpDestinationMasked = "";
+    private Instant otpSentAt;
+    private Instant otpVerifiedAt;
+    private BookingRecord booking;
 
     public Session(String callId, Instant createdAt) {
         this.callId = callId;
@@ -100,6 +104,7 @@ public class Session {
     // The agreed load fell through (taken or refused): keep the history, let the carrier negotiate another one.
     public void releaseNegotiation() {
         if (negotiation != null) {
+            negotiation.release();
             previousNegotiations.add(negotiation);
         }
         negotiation = null;
@@ -110,12 +115,45 @@ public class Session {
         return List.copyOf(previousNegotiations);
     }
 
-    public String bookingRef() {
-        return bookingRef;
+    public void addVerification(VerificationAttempt attempt) {
+        verifications.add(attempt);
     }
 
-    public void bookingRef(String bookingRef) {
-        this.bookingRef = bookingRef;
+    public List<VerificationAttempt> verifications() {
+        return List.copyOf(verifications);
+    }
+
+    public String otpDestinationMasked() {
+        return otpDestinationMasked;
+    }
+
+    public void otpDestinationMasked(String otpDestinationMasked) {
+        this.otpDestinationMasked = otpDestinationMasked;
+    }
+
+    public Instant otpSentAt() {
+        return otpSentAt;
+    }
+
+    public void otpSentAt(Instant otpSentAt) {
+        this.otpSentAt = otpSentAt;
+    }
+
+    public Instant otpVerifiedAt() {
+        return otpVerifiedAt;
+    }
+
+    public void otpVerifiedAt(Instant otpVerifiedAt) {
+        this.otpVerifiedAt = otpVerifiedAt;
+    }
+
+    // Null until booked or handed to a rep unconfirmed.
+    public BookingRecord booking() {
+        return booking;
+    }
+
+    public void booking(BookingRecord booking) {
+        this.booking = booking;
     }
 
     @Override

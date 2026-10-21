@@ -2,6 +2,7 @@ package ai.happyrobot.carriersales.booking;
 
 import ai.happyrobot.carriersales.booking.model.BookingResult;
 import ai.happyrobot.carriersales.carriers.McNumber;
+import ai.happyrobot.carriersales.session.BookingRecord;
 import ai.happyrobot.carriersales.session.Negotiation;
 import ai.happyrobot.carriersales.session.Session;
 import ai.happyrobot.carriersales.session.SessionState;
@@ -13,6 +14,7 @@ import ai.happyrobot.carriersales.tms.model.TmsBooking;
 import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import ai.happyrobot.carriersales.tms.protocol.TmsRequest;
 import java.text.NumberFormat;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -80,9 +82,7 @@ public class BookingService {
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
                 TmsBooking booking = tms.book(loadId, session.mcNumber(), negotiation.agreedRate());
-                session.bookingRef(booking.bookingRef());
-                session.state(SessionState.BOOKED);
-                return booked(session, negotiation);
+                return booked(session, negotiation, booking.bookingRef());
             } catch (TmsErrorException e) {
                 if ("ALREADY_BOOKED".equals(e.code())) {
                     // We hold the claim, but the TMS can't say which of our requests booked it: let a rep confirm.
@@ -101,8 +101,7 @@ public class BookingService {
                 }
                 if (!"OPEN".equals(status.get())) {
                     // Still claimed by this call, so no other call of ours booked it.
-                    session.state(SessionState.BOOKED);
-                    return booked(session, negotiation);
+                    return booked(session, negotiation, "");
                 }
                 log.warn("Booking {} for call {} failed ({}), still OPEN, attempt {}/2", loadId, session.callId(),
                         e.kind(), attempt);
@@ -120,18 +119,26 @@ public class BookingService {
         }
     }
 
-    private BookingResult booked(Session session, Negotiation negotiation) {
+    private BookingResult booked(Session session, Negotiation negotiation, String reference) {
+        session.state(SessionState.BOOKED);
+        session.booking(record(session, negotiation, reference, "booked"));
         handoff(session, negotiation, "booked");
         return bookedResult(session, negotiation);
+    }
+
+    private static BookingRecord record(Session session, Negotiation negotiation, String reference, String status) {
+        return new BookingRecord(negotiation.loadId(), session.mcNumber(), negotiation.agreedRate(), reference, status,
+                true, REP_QUEUE, Instant.now());
     }
 
     private BookingResult bookedResult(Session session, Negotiation negotiation) {
         return new BookingResult("", "You're all set: " + negotiation.loadId() + " is booked at "
                 + money(negotiation.agreedRate()) + ". I'm passing you to a senior rep to wrap up the paperwork.",
-                true, negotiation.loadId(), negotiation.agreedRate(), session.bookingRef(), true, REP_QUEUE);
+                true, negotiation.loadId(), negotiation.agreedRate(), bookingRef(session), true, REP_QUEUE);
     }
 
     private BookingResult unconfirmed(Session session, Negotiation negotiation) {
+        session.booking(record(session, negotiation, "", "unconfirmed"));
         handoff(session, negotiation, "needs confirmation");
         return new BookingResult("BOOKING_UNCONFIRMED", "Your booking is going through. I'm passing you to a "
                 + "senior rep who'll confirm it with you.", false, negotiation.loadId(), negotiation.agreedRate(),
@@ -142,7 +149,11 @@ public class BookingService {
     private void handoff(Session session, Negotiation negotiation, String status) {
         log.info("Handoff to {}: call {}, {} (MC {}), load {} at {}, {}, ref {}", REP_QUEUE, session.callId(),
                 session.carrierName(), session.mcNumber(), negotiation.loadId(), negotiation.agreedRate(), status,
-                session.bookingRef().isEmpty() ? "-" : session.bookingRef());
+                bookingRef(session).isEmpty() ? "-" : bookingRef(session));
+    }
+
+    private static String bookingRef(Session session) {
+        return session.booking() == null ? "" : session.booking().reference();
     }
 
     private static String cleanLoadId(String spoken) {

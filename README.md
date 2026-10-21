@@ -78,7 +78,12 @@ and `message` (a sentence the agent can say). Only a missing or wrong key gets a
 | Load details | `GET /api/loads/{load_id}` | | `available`, rate, lane, dates, weight, commodity... |
 | Negotiate | `POST /api/negotiations/offer` | `{"load_id": "LD00979", "counter_rate": 2400}` | `decision` (accept, counter, reject), `rate`, `round`, `final` |
 | Book | `POST /api/bookings` | `{"load_id": "LD00979"}` | `booked`, `agreed_rate`, `booking_reference`, `transferred` |
+| Call summary | `GET /api/calls/{call_id}/summary` | | `state`, `carrier_verifications`, `otp_challenges`, `negotiations`, `negotiation_offers`, `bookings` |
 | Health | `GET /health` | | no key, liveness only |
+
+The call summary is read by the end-of-call workflow, which writes its lists to the matching Twin tables
+(the call log and audit). It includes failed attempts, never the maximum rate, the code or the full email,
+and is available while the call's session lives (1 hour).
 
 Example:
 
@@ -114,6 +119,7 @@ loads/        load search and details
 negotiation/  rate negotiation rules and service
 booking/      booking and rep handoff
 session/      short-lived state per call (verification, negotiation, booking)
+summary/      call summary for the Twin call log
 web/          API key filter, request log
 config/       validated configuration
 ```

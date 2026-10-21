@@ -7,7 +7,9 @@ import ai.happyrobot.carriersales.fmcsa.model.FmcsaCarrier;
 import ai.happyrobot.carriersales.session.Session;
 import ai.happyrobot.carriersales.session.SessionState;
 import ai.happyrobot.carriersales.session.SessionStore;
+import ai.happyrobot.carriersales.session.VerificationAttempt;
 import ai.happyrobot.carriersales.web.exception.BadRequestException;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Optional;
@@ -34,6 +36,20 @@ public class CarrierService {
     }
 
     public VerifyResult verify(String spokenMcNumber, String callId) {
+        VerifyResult result = check(spokenMcNumber, callId);
+        if (callId != null && !callId.isBlank()) {
+            Session session = sessions.getOrCreate(callId);
+            synchronized (session) {
+                session.addVerification(new VerificationAttempt(spokenMcNumber == null ? "" : spokenMcNumber,
+                        result.mcNumber(), result.eligible(), result.reason().isEmpty() ? result.error() : result.reason(),
+                        result.carrierName(), result.homeBase(), result.powerUnits(), result.drivers(),
+                        result.safetyRating(), Instant.now()));
+            }
+        }
+        return result;
+    }
+
+    private VerifyResult check(String spokenMcNumber, String callId) {
         String mc;
         try {
             mc = mcNumber(spokenMcNumber);
