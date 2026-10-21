@@ -8,6 +8,8 @@ public record CallSummary(
         String error,
         String message,
         String callId,
+        // "production" or "development", so the call log can leave test calls out of the analytics.
+        String environment,
         String state,
         List<VerificationRow> carrierVerifications,
         List<OtpRow> otpChallenges,
@@ -36,8 +38,8 @@ public record CallSummary(
                              String status, boolean transferred, String repQueue) {
     }
 
-    public static CallSummary notFound(String callId) {
-        return new CallSummary("NOT_FOUND", "No data for that call.", callId, "", List.of(), List.of(), List.of(),
-                List.of(), List.of());
+    public static CallSummary notFound(String callId, String environment) {
+        return new CallSummary("NOT_FOUND", "No data for that call.", callId, environment, "", List.of(), List.of(),
+                List.of(), List.of(), List.of());
     }
 }

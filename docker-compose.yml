@@ -5,6 +5,8 @@ services:
     build: .
     image: carrier-sales:local
     environment:
+      # production books in the real TMS; set APP_ENV=development to test without writing to it.
+      APP_ENV: ${APP_ENV:-production}
       TMS_HOST: ${TMS_HOST:-tramway.proxy.rlwy.net}
       TMS_PORT: ${TMS_PORT:-17159}
       TMS_TOKEN: ${TMS_TOKEN:?TMS_TOKEN is not set}

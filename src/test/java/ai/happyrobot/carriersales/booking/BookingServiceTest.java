@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import ai.happyrobot.carriersales.booking.model.BookingResult;
+import ai.happyrobot.carriersales.config.DeploymentProperties;
 import ai.happyrobot.carriersales.session.Negotiation;
 import ai.happyrobot.carriersales.session.Negotiation.Round;
 import ai.happyrobot.carriersales.session.Session;
@@ -42,7 +43,7 @@ class BookingServiceTest {
     private final SessionStore sessions = new SessionStore();
     private final LoadClaims claims = new LoadClaims();
     private final TmsClient tms = mock(TmsClient.class);
-    private final BookingService service = new BookingService(sessions, claims, tms);
+    private final BookingService service = new BookingService(sessions, claims, tms, DeploymentProperties.production());
 
     @BeforeEach
     void agreedAt4202() {
@@ -62,6 +63,48 @@ class BookingServiceTest {
         assertThat(result.transferred()).isTrue();
         assertThat(result.repQueue()).isEqualTo("senior-carrier-sales");
         assertThat(sessions.find(CALL).orElseThrow().state()).isEqualTo(SessionState.BOOKED);
+    }
+
+    @Test
+    void productionBookingStillBooksInTheTms() {
+        when(tms.book("LD01000", "133655", 4202)).thenReturn(BOOKING);
+
+        BookingResult result = service.book(CALL, "", "LD01000");
+
+        verify(tms, times(1)).book("LD01000", "133655", 4202);
+        assertThat(result.bookingReference()).isEqualTo("GFZKYZRT3K4JOEAE");
+    }
+
+    @Test
+    void developmentBookingNeverWritesToTheTms(CapturedOutput output) {
+        BookingService development = new BookingService(sessions, claims, tms, DeploymentProperties.development());
+
+        BookingResult result = development.book(CALL, "", "LD01000");
+        BookingResult again = development.book(CALL, "", "LD01000");
+
+        verifyNoInteractions(tms);
+        // Same shape and checks as production; only the reference shows it never reached the TMS.
+        assertThat(result.error()).isEmpty();
+        assertThat(result.booked()).isTrue();
+        assertThat(result.agreedRate()).isEqualTo(4202);
+        assertThat(result.loadId()).isEqualTo("LD01000");
+        assertThat(result.transferred()).isTrue();
+        assertThat(result.bookingReference()).matches("DEV-[A-Z0-9]{12}");
+        assertThat(again.bookingReference()).isEqualTo(result.bookingReference());
+        assertThat(sessions.find(CALL).orElseThrow().booking().status()).isEqualTo("booked");
+        assertThat(output).contains("booked in development, not sent to the TMS");
+    }
+
+    @Test
+    void developmentStillRunsEveryCheck() {
+        BookingService development = new BookingService(sessions, claims, tms, DeploymentProperties.development());
+        sessions.getOrCreate("run-6").state(SessionState.FMCSA_VERIFIED);
+        sessions.getOrCreate("run-7").state(SessionState.OTP_VERIFIED);
+
+        assertThat(development.book("run-6", "", "LD01000").error()).isEqualTo("OTP_NOT_VERIFIED");
+        assertThat(development.book("run-7", "", "LD01000").error()).isEqualTo("NO_AGREEMENT");
+        assertThat(development.book(CALL, "", "LD01024").error()).isEqualTo("LOAD_MISMATCH");
+        verifyNoInteractions(tms);
     }
 
     @Test

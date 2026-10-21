@@ -67,9 +67,10 @@ class CallSummaryApiTest {
     void unknownCallIs200WithEveryField() throws Exception {
         JsonNode body = call(get("/api/calls/never-seen/summary"));
 
-        assertThat(fieldNames(body)).containsExactlyInAnyOrder("error", "message", "call_id", "state",
+        assertThat(fieldNames(body)).containsExactlyInAnyOrder("error", "message", "call_id", "environment", "state",
                 "carrier_verifications", "otp_challenges", "negotiations", "negotiation_offers", "bookings");
         assertThat(body.get("error").asText()).isEqualTo("NOT_FOUND");
+        assertThat(body.get("environment").asText()).isEqualTo("production");
     }
 
     @Test
@@ -103,6 +104,7 @@ class CallSummaryApiTest {
 
         assertThat(s.get("error").asText()).isEmpty();
         assertThat(s.get("state").asText()).isEqualTo("BOOKED");
+        assertThat(s.get("environment").asText()).isEqualTo("production");
         assertThat(s.get("carrier_verifications")).extracting(v -> v.get("reason").asText()).containsExactly("NOT_FOUND", "");
         JsonNode otp = s.get("otp_challenges").get(0);
         assertThat(otp.get("destination_masked").asText()).isEqualTo("j***@schneider.com");

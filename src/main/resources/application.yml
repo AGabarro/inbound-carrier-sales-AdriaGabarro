@@ -16,6 +16,11 @@ server:
 # Secrets have empty defaults so a missing variable fails bean validation with a clear message
 # instead of an "unresolvable placeholder" stack trace. Never put a secret value in this file.
 app:
+  deployment:
+    # production (default) or development. Development never books in the TMS.
+    environment: ${APP_ENV:production}
+    # Set by Railway. A development app refuses to start in Railway's "production" environment.
+    platform-environment: ${RAILWAY_ENVIRONMENT_NAME:}
   tms:
     host: ${TMS_HOST:tramway.proxy.rlwy.net}
     port: ${TMS_PORT:17159}

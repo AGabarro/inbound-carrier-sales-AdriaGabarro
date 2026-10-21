@@ -1,5 +1,6 @@
 package ai.happyrobot.carriersales.summary;
 
+import ai.happyrobot.carriersales.config.DeploymentProperties;
 import ai.happyrobot.carriersales.otp.OtpService;
 import ai.happyrobot.carriersales.session.Negotiation;
 import ai.happyrobot.carriersales.session.Session;
@@ -22,15 +23,17 @@ import org.springframework.stereotype.Service;
 public class CallSummaryService {
 
     private final SessionStore sessions;
+    private final DeploymentProperties deployment;
 
-    public CallSummaryService(SessionStore sessions) {
+    public CallSummaryService(SessionStore sessions, DeploymentProperties deployment) {
         this.sessions = sessions;
+        this.deployment = deployment;
     }
 
     public CallSummary summary(String callId) {
         Optional<Session> found = callId == null || callId.isBlank() ? Optional.empty() : sessions.find(callId);
         if (found.isEmpty()) {
-            return CallSummary.notFound(callId == null ? "" : callId);
+            return CallSummary.notFound(callId == null ? "" : callId, deployment.label());
         }
         Session s = found.get();
         synchronized (s) {
@@ -52,8 +55,8 @@ public class CallSummaryService {
                             r.carrierAsk(), r.decision(), r.rate())))
                     .toList();
 
-            return new CallSummary("", "", callId, s.state().name(), verifications, otp(s), negotiations, offers,
-                    s.booking() == null ? List.of() : List.of(new BookingRow(callId, s.booking().loadId(),
+            return new CallSummary("", "", callId, deployment.label(), s.state().name(), verifications, otp(s),
+                    negotiations, offers, s.booking() == null ? List.of() : List.of(new BookingRow(callId, s.booking().loadId(),
                             s.booking().mcNumber(), s.booking().agreedRate(), s.booking().reference(),
                             s.booking().status(), s.booking().transferred(), s.booking().repQueue())));
         }

@@ -2,6 +2,7 @@ package ai.happyrobot.carriersales.booking;
 
 import ai.happyrobot.carriersales.booking.model.BookingResult;
 import ai.happyrobot.carriersales.carriers.McNumber;
+import ai.happyrobot.carriersales.config.DeploymentProperties;
 import ai.happyrobot.carriersales.session.BookingRecord;
 import ai.happyrobot.carriersales.session.Negotiation;
 import ai.happyrobot.carriersales.session.Session;
@@ -18,26 +19,34 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 // Books the agreed load at the agreed rate (never a rate from the request: the TMS doesn't check MAX_BUY),
 // then hands the carrier to a senior rep (mocked). A booking is never retried blindly.
+// Development runs every check but never writes to the TMS: the booking reference is a fake "DEV-" one.
 @Service
 public class BookingService {
 
     private static final Logger log = LoggerFactory.getLogger(BookingService.class);
     static final String REP_QUEUE = "senior-carrier-sales";
+    private static final String REF_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
     private final SessionStore sessions;
     private final LoadClaims claims;
     private final TmsClient tms;
+    private final DeploymentProperties deployment;
 
-    public BookingService(SessionStore sessions, LoadClaims claims, TmsClient tms) {
+    public BookingService(SessionStore sessions, LoadClaims claims, TmsClient tms, DeploymentProperties deployment) {
         this.sessions = sessions;
         this.claims = claims;
         this.tms = tms;
+        this.deployment = deployment;
+        if (deployment.isDevelopment()) {
+            log.warn("Development: bookings are not sent to the TMS");
+        }
     }
 
     public BookingResult book(String callId, String requestedMc, String requestedLoadId) {
@@ -78,6 +87,9 @@ public class BookingService {
     }
 
     private BookingResult attempt(Session session, Negotiation negotiation) {
+        if (deployment.isDevelopment()) {
+            return booked(session, negotiation, developmentReference());
+        }
         String loadId = negotiation.loadId();
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
@@ -122,7 +134,8 @@ public class BookingService {
     private BookingResult booked(Session session, Negotiation negotiation, String reference) {
         session.state(SessionState.BOOKED);
         session.booking(record(session, negotiation, reference, "booked"));
-        handoff(session, negotiation, "booked");
+        handoff(session, negotiation,
+                deployment.isDevelopment() ? "booked in development, not sent to the TMS" : "booked");
         return bookedResult(session, negotiation);
     }
 
@@ -150,6 +163,15 @@ public class BookingService {
         log.info("Handoff to {}: call {}, {} (MC {}), load {} at {}, {}, ref {}", REP_QUEUE, session.callId(),
                 session.carrierName(), session.mcNumber(), negotiation.loadId(), negotiation.agreedRate(), status,
                 bookingRef(session).isEmpty() ? "-" : bookingRef(session));
+    }
+
+    // Same length as a real TMS reference, obviously fake.
+    private static String developmentReference() {
+        StringBuilder ref = new StringBuilder("DEV-");
+        for (int i = 0; i < 12; i++) {
+            ref.append(REF_CHARS.charAt(ThreadLocalRandom.current().nextInt(REF_CHARS.length())));
+        }
+        return ref.toString();
     }
 
     private static String bookingRef(Session session) {

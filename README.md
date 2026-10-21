@@ -44,9 +44,18 @@ Environment variables only (locally, `docker compose` reads `.env`, which is git
 | `API_KEY` | yes | Key callers must send in `X-API-Key` |
 | `CARRIER_CONTACTS` | no | Contact on file per MC, where codes are sent: `133655:ops@carrier.com,650000:...` |
 | `OTP_SENDER_WEBHOOK_URL`, `OTP_SENDER_API_KEY` | no | HappyRobot "OTP Sender" workflow webhook. Empty: codes are not delivered |
+| `APP_ENV` | no | `production` (default) or `development`. See below |
 | `PORT` | no | HTTP port, default 8080 |
 
 The app refuses to start if a required value is missing, naming the variable but never its value.
+
+**Development never writes to the TMS.** With `APP_ENV=development`, bookings go through every check
+(verified code, accepted rate, same load) and return the normal response, but nothing is sent to the TMS and
+the booking reference starts with `DEV-`. Searches and load details still read the real TMS. The setting comes
+from deployment config only, never from a request. As a guard, the app refuses to start if `APP_ENV=development`
+while the platform says it's the production environment (`RAILWAY_ENVIRONMENT_NAME=production`).
+Both `docker compose` and the cloud default to `production`; set `APP_ENV=development` for test deployments.
+Every call summary includes `environment`, so test calls can be left out of the call log analytics.
 
 ## Deploy
 

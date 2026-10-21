@@ -40,6 +40,42 @@ class ConfigPropertiesTest {
     }
 
     @Test
+    void productionUnlessToldOtherwise() {
+        runner.withPropertyValues(VALID).run(context ->
+                assertThat(context.getBean(DeploymentProperties.class).label()).isEqualTo("production"));
+    }
+
+    @Test
+    void developmentFromDeploymentConfig() {
+        runner.withPropertyValues(VALID)
+                .withPropertyValues("app.deployment.environment=development",
+                        "app.deployment.platform-environment=development")
+                .run(context -> assertThat(context.getBean(DeploymentProperties.class).isDevelopment()).isTrue());
+    }
+
+    @Test
+    void refusesAnUnknownEnvironment() {
+        runner.withPropertyValues(VALID)
+                .withPropertyValues("app.deployment.environment=staging")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(causeChain(context.getStartupFailure())).contains("app.deployment.environment");
+                });
+    }
+
+    @Test
+    void refusesDevelopmentInThePlatformsProductionEnvironment() {
+        runner.withPropertyValues(VALID)
+                .withPropertyValues("app.deployment.environment=development",
+                        "app.deployment.platform-environment=production")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(causeChain(context.getStartupFailure()))
+                            .contains("APP_ENV=development is not allowed");
+                });
+    }
+
+    @Test
     void failsFastOnBlankSecret() {
         runner.withPropertyValues(VALID)
                 .withPropertyValues("app.tms.token=")
@@ -91,7 +127,8 @@ class ConfigPropertiesTest {
     }
 
     @Configuration
-    @EnableConfigurationProperties({TmsProperties.class, FmcsaProperties.class, SecurityProperties.class})
+    @EnableConfigurationProperties({TmsProperties.class, FmcsaProperties.class, SecurityProperties.class,
+            DeploymentProperties.class})
     static class PropertiesConfig {
     }
 }
