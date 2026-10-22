@@ -66,6 +66,18 @@ class BookingServiceTest {
     }
 
     @Test
+    void carrierIsToldTheLoadIsReservedAndARepWillConfirm() {
+        when(tms.book("LD01000", "133655", 4202)).thenReturn(BOOKING);
+
+        BookingResult result = service.book(CALL, "", "LD01000");
+
+        assertThat(result.message())
+                .isEqualTo("Great, I've reserved LD01000 for you at $4,202. "
+                        + "A senior rep will confirm it with you and handle the paperwork.")
+                .doesNotContain("booked", "all set");
+    }
+
+    @Test
     void productionBookingStillBooksInTheTms() {
         when(tms.book("LD01000", "133655", 4202)).thenReturn(BOOKING);
 

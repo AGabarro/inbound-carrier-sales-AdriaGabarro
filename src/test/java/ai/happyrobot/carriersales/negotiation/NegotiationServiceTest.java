@@ -16,7 +16,9 @@ import ai.happyrobot.carriersales.session.SessionState;
 import ai.happyrobot.carriersales.session.SessionStore;
 import ai.happyrobot.carriersales.tms.model.TmsLoad;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -129,7 +131,22 @@ class NegotiationServiceTest {
     void outrageousAskIsToldItIsWellAbove() {
         OfferResult result = service.offer(CALL, "", "LD00979", "3500");
 
-        assertThat(NegotiationService.FIRM).anySatisfy(firm -> assertThat(result.message()).startsWith(firm));
+        assertThat(NegotiationService.FIRM).anySatisfy(firm ->
+                assertThat(result.message()).startsWith(firm.substring(0, firm.indexOf("%s"))));
+    }
+
+    @Test
+    void messagesAreOneShortSentenceWithoutCeilingWords() {
+        List<String> all = new ArrayList<>();
+        all.addAll(NegotiationService.ACCEPT);
+        all.addAll(NegotiationService.COUNTER);
+        all.addAll(NegotiationService.FIRM);
+        all.addAll(NegotiationService.REJECT);
+
+        assertThat(all).allSatisfy(message -> {
+            assertThat(message.replace("%s", "$2,500").split("[.?!]\\s")).hasSize(1);
+            assertThat(message.toLowerCase()).doesNotContain("best", "max", "final", "limit", "higher", "bye");
+        });
     }
 
     @Test

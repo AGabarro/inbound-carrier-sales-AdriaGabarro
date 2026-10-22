@@ -145,17 +145,19 @@ public class BookingService {
                 true, REP_QUEUE, Instant.now());
     }
 
+    // The TMS holds the load as PENDING: reserved at the agreed rate until the senior rep confirms it.
     private BookingResult bookedResult(Session session, Negotiation negotiation) {
-        return new BookingResult("", "You're all set: " + negotiation.loadId() + " is booked at "
-                + money(negotiation.agreedRate()) + ". I'm passing you to a senior rep to wrap up the paperwork.",
+        return new BookingResult("", "Great, I've reserved " + negotiation.loadId() + " for you at "
+                + money(negotiation.agreedRate())
+                + ". A senior rep will confirm it with you and handle the paperwork.",
                 true, negotiation.loadId(), negotiation.agreedRate(), bookingRef(session), true, REP_QUEUE);
     }
 
     private BookingResult unconfirmed(Session session, Negotiation negotiation) {
         session.booking(record(session, negotiation, "", "unconfirmed"));
         handoff(session, negotiation, "needs confirmation");
-        return new BookingResult("BOOKING_UNCONFIRMED", "Your booking is going through. I'm passing you to a "
-                + "senior rep who'll confirm it with you.", false, negotiation.loadId(), negotiation.agreedRate(),
+        return new BookingResult("BOOKING_UNCONFIRMED", "The system is still confirming your reservation. "
+                + "A senior rep will confirm it with you shortly.", false, negotiation.loadId(), negotiation.agreedRate(),
                 "", true, REP_QUEUE);
     }
 

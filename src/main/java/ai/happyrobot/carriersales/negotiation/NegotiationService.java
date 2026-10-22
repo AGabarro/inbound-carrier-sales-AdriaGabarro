@@ -29,26 +29,27 @@ public class NegotiationService {
 
     private static final Logger log = LoggerFactory.getLogger(NegotiationService.class);
 
+    // One short sentence each, the agent reads them as is. Never words that suggest a ceiling ("best", "max",
+    // "final"): a counter can still go up next round. No goodbyes: the agent closes the call itself.
     static final List<String> ACCEPT = List.of(
             "Deal, %s it is.",
-            "You've got it at %s. Pleasure doing business.",
-            "Alright, %s works. Let's get you rolling.",
-            "%s? Done. Your truck just found its next job.",
-            "Sold at %s. Shake on it?");
+            "You've got it at %s.",
+            "Alright, %s works.",
+            "Done, %s.");
     static final List<String> COUNTER = List.of(
-            "The best I can do on this one is %s.",
-            "I can stretch to %s. Any more and my boss takes my coffee away.",
+            "How about %s?",
+            "I can do %s.",
             "Let me meet you at %s.",
-            "How about %s? That's a solid number for this lane.",
-            "I can go %s. Help me out here.");
+            "I could come up to %s on this one.");
+    // Asks far above what the load pays get a smaller step, and are told so.
     static final List<String> FIRM = List.of(
-            "Whoa, that's well above what this load pays. ",
-            "That number made my calculator sweat. ",
-            "That's way more than this one pays, my friend. ");
+            "That's well above what this load pays, but I can do %s.",
+            "That's a lot more than this one pays, I can do %s.",
+            "We're far apart on this one, how about %s?");
     static final List<String> REJECT = List.of(
-            "I'm sorry, I can't go that high on this load. Thanks for your time, and give us a call for the next one.",
-            "That's more than this load can carry, so we'll pass this time. Thanks for calling, and drive safe.",
-            "We're too far apart on this one, I'm afraid. Thanks for your time, and good luck out there.");
+            "I'm sorry, I can't go that high on this load.",
+            "That's more than this load can pay, so I'll have to pass.",
+            "We're too far apart on this one, I'm afraid.");
 
     private final SessionStore sessions;
     private final LoadService loads;
@@ -131,7 +132,7 @@ public class NegotiationService {
     private String message(Decision decision) {
         return switch (decision.kind()) {
             case ACCEPT -> pick(ACCEPT).formatted(money(decision.rate()));
-            case COUNTER -> (decision.firm() ? pick(FIRM) : "") + pick(COUNTER).formatted(money(decision.rate()));
+            case COUNTER -> pick(decision.firm() ? FIRM : COUNTER).formatted(money(decision.rate()));
             case REJECT -> pick(REJECT);
         };
     }
