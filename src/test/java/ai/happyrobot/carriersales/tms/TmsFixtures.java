@@ -5,7 +5,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 
-/** Real TMS responses in src/test/resources/tms/, captured by tools/tms-probes/capture.py. */
+/** Real TMS responses in src/test/resources/tms/, captured from the live system. */
 public final class TmsFixtures {
 
     private TmsFixtures() {
