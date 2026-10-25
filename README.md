@@ -28,6 +28,17 @@ docker compose up --build   # builds, runs the tests, starts on http://localhost
 curl localhost:8080/health  # {"status":"UP"}
 ```
 
+**Try the whole flow locally without touching the TMS or sending email:** set `APP_ENV=development` and
+`TEST_OTP_CODE=000000` in `.env`, then (`TMS_TOKEN` and `FMCSA_API_KEY` are still needed for real reads):
+
+```bash
+H=(-H "X-API-Key: $API_KEY" -H "X-Call-ID: try-1" -H "Content-Type: application/json")
+curl "${H[@]}" -X POST -d '{"mc_number":"133655"}' localhost:8080/api/carriers/verify   # needs a US network
+curl "${H[@]}" -X POST -d '{}' localhost:8080/api/otp/send     # needs CARRIER_CONTACTS=133655:you@example.com
+curl "${H[@]}" -X POST -d '{"code":"000000"}' localhost:8080/api/otp/verify
+curl "${H[@]}" "localhost:8080/api/loads/search?origin_state=KY&equipment=dry%20van"
+```
+
 Tests run inside the image build. To run them on the host instead (Java 21+): `./mvnw test`.
 One test talks to the live TMS and only runs when `TMS_TOKEN` is set:
 `set -a; . ./.env; set +a; ./mvnw test -Dtest=TmsLiveSmokeTest`.
